@@ -15,6 +15,8 @@ import (
 )
 
 func main() {
+	const dbName = "openidprovider"
+
 	var initdbPassword string
 	flag.StringVar(&initdbPassword, "initdb-pass", "", "Initializes the database with a user with this password, contents must be bcrypt encoded")
 	var initdbUsername string
@@ -32,7 +34,7 @@ func main() {
 		}
 		fmt.Println(hash)
 	} else if initdbPassword != "" && initdbUsername != "" {
-		err := schema.InitDatabaseWithUser("openidprovider", initdbUsername, initdbPassword)
+		err := schema.InitDatabaseWithUser(dbName, initdbUsername, initdbPassword)
 		if err != nil {
 			log.Fatalf("Error initializing database: %s", err)
 		}
@@ -41,7 +43,7 @@ func main() {
 		if err != nil {
 			panic(fmt.Errorf("error loading .env file: %s", err))
 		}
-		server.RunServer("openidprovider", domain.Configuration{
+		server.RunServer(dbName, domain.Configuration{
 			ServerReadTimeoutSeconds:  getIntFromEnv("OPENIDPROVIDER_SERVER_READ_TIMEOUT_SECONDS", 5),
 			ServerWriteTimeoutSeconds: getIntFromEnv("OPENIDPROVIDER_SERVER_WRITE_TIMEOUT_SECONDS", 10),
 			ServerPort:                getIntFromEnv("OPENIDPROVIDER_SERVER_PORT", 1323),
