@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo"
@@ -48,8 +49,41 @@ func RunServer(dbName string, config domain.Configuration) {
 	e.GET("/login", func(c echo.Context) error { return showLogin(c) })
 	e.POST("/login", func(c echo.Context) error { return login(db, c) })
 
+	e.GET("/authorize", func(c echo.Context) error { return authorize(db, c) })
+	e.POST("/authorize", func(c echo.Context) error { return authorize(db, c) })
+
 	e.Logger.Fatal(e.Start(":" + strconv.Itoa(config.ServerPort)))
 	// NO MORE CODE HERE, IT WILL NOT BE EXECUTED
+}
+
+func authorize(db *sql.DB, c echo.Context) error {
+	// Do basic validation whether required parameters are present first and respond with bad request if not
+	// Validate the client and redirect URI as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 and respond if an error
+	// Validate that scope is 'openid' and responsetype is 'code' otherwise redirect to redirect URI with error
+	// else show login page (we always show the login page as we don't implement persistent SSO sessions (yet))
+
+	// TODO: continue here
+	authenticationRequest := domain.OidcAuthenticationRequest{
+		Scopes:       strings.Split(getParam(c, "scope"), " "),
+		ResponseType: getParam(c, "response_type"),
+		ClientId:     getParam(c, "client_id"),
+		RedirectUri:  getParam(c, "redirect_uri"),
+		State:        getParam(c, "state"),
+	}
+	if len(authenticationRequest.Scopes) == 0 ||
+		authenticationRequest.ResponseType == "" ||
+		authenticationRequest.ClientId == "" ||
+		authenticationRequest.RedirectUri == "" {
+		return c.String(http.StatusBadRequest, "Missing required parameters")
+	}
+}
+
+func getParam(c echo.Context, paramName string) string {
+	param := c.QueryParam(paramName)
+	if param == "" {
+		param = c.FormValue(paramName)
+	}
+	return param
 }
 
 type LoginPage struct {
