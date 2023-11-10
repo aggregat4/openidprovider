@@ -1,9 +1,13 @@
 package domain
 
+type ClientId = string
+type ClientRedirectUri = string
+
 type Configuration struct {
 	ServerReadTimeoutSeconds  int
 	ServerWriteTimeoutSeconds int
 	ServerPort                int
+	RegisteredClients         map[ClientId][]ClientRedirectUri
 }
 
 type OidcClient struct {

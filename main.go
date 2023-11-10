@@ -11,7 +11,9 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/gurkankaymak/hocon"
 	"github.com/joho/godotenv"
+	"github.com/kirsle/configdir"
 )
 
 func main() {
@@ -43,6 +45,23 @@ func main() {
 		if err != nil {
 			panic(fmt.Errorf("error loading .env file: %s", err))
 		}
+		conf, err := hocon.ParseResource(configdir.LocalConfig("openidprovider") + "/openidprovider.hocon")
+		if err != nil {
+			log.Fatal("error while parsing configuration: ", err)
+		}
+		configuredClients := conf.GetObject("registeredcliients")
+		registeredClients := make(map[domain.ClientId][]domain.ClientRedirectUri)
+		for client := range configuredClients {
+			clientId := client
+			redirectUris := make([]domain.ClientRedirectUri, 0, 1)
+			// TODO: continue here, i do not know how to read a nested array using this library
+			// maybe try koanf as a replacement?
+			for redirectUri := range configuredClients[clientId]. {
+				redirectUris = append(redirectUris, redirectUri.GetString())
+			}
+			registeredClients[domain.ClientId(clientId)] = redirectUris
+		}
+
 		server.RunServer(dbName, domain.Configuration{
 			ServerReadTimeoutSeconds:  getIntFromEnv("OPENIDPROVIDER_SERVER_READ_TIMEOUT_SECONDS", 5),
 			ServerWriteTimeoutSeconds: getIntFromEnv("OPENIDPROVIDER_SERVER_WRITE_TIMEOUT_SECONDS", 10),

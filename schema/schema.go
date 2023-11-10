@@ -106,16 +106,6 @@ var migrations = []Migration{
 			password TEXT NOT NULL,
 			last_update INTEGER NOT NULL
 		);
-
-		CREATE TABLE IF NOT EXISTS clients (
-			id TEXT NOT NULL PRIMARY KEY
-		);			
-
-		CREATE TABLE IF NOT EXISTS client_redirect_uris (
-			client_id TEXT NOT NULL,
-			redirect_uri TEXT NOT NULL,
-			FOREIGN KEY (client_id) REFERENCES clients(id)
-		);		
 		`,
 	},
 }

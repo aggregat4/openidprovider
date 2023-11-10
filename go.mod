@@ -15,6 +15,8 @@ require (
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/gorilla/sessions v1.2.1 // indirect
+	github.com/gurkankaymak/hocon v1.2.18 // indirect
+	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f // indirect
 	github.com/labstack/echo/v4 v4.10.2 // indirect
 	golang.org/x/time v0.3.0 // indirect
 )
