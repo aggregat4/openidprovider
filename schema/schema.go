@@ -97,15 +97,25 @@ type Migration struct {
 var migrations = []Migration{
 	{1,
 		`
-		CREATE TABLE IF NOT EXISTS users (
-		id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-		username TEXT NOT NULL,
-		password TEXT NOT NULL,
-		last_update INTEGER NOT NULL
-		);
-
 		-- Enable WAL mode on the database to allow for concurrent reads and writes
 		PRAGMA journal_mode=WAL;
+
+		CREATE TABLE IF NOT EXISTS users (
+			id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL,
+			password TEXT NOT NULL,
+			last_update INTEGER NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS clients (
+			id TEXT NOT NULL PRIMARY KEY
+		);			
+
+		CREATE TABLE IF NOT EXISTS client_redirect_uris (
+			client_id TEXT NOT NULL,
+			redirect_uri TEXT NOT NULL,
+			FOREIGN KEY (client_id) REFERENCES clients(id)
+		);		
 		`,
 	},
 }

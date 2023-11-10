@@ -46,7 +46,9 @@ func RunServer(dbName string, config domain.Configuration) {
 		TokenLookup: "form:csrf_token",
 	}))
 
-	e.GET("/login", func(c echo.Context) error { return showLogin(c) })
+	// We don't need to allow showing the login page directly, it will only be used as a response to an
+	// authorization request
+	// e.GET("/login", func(c echo.Context) error { return showLogin(c) })
 	e.POST("/login", func(c echo.Context) error { return login(db, c) })
 
 	e.GET("/authorize", func(c echo.Context) error { return authorize(db, c) })
@@ -57,12 +59,6 @@ func RunServer(dbName string, config domain.Configuration) {
 }
 
 func authorize(db *sql.DB, c echo.Context) error {
-	// Do basic validation whether required parameters are present first and respond with bad request if not
-	// Validate the client and redirect URI as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 and respond if an error
-	// Validate that scope is 'openid' and responsetype is 'code' otherwise redirect to redirect URI with error
-	// else show login page (we always show the login page as we don't implement persistent SSO sessions (yet))
-
-	// TODO: continue here
 	authenticationRequest := domain.OidcAuthenticationRequest{
 		Scopes:       strings.Split(getParam(c, "scope"), " "),
 		ResponseType: getParam(c, "response_type"),
@@ -70,12 +66,52 @@ func authorize(db *sql.DB, c echo.Context) error {
 		RedirectUri:  getParam(c, "redirect_uri"),
 		State:        getParam(c, "state"),
 	}
+	// Do basic validation whether required parameters are present first and respond with bad request if not
 	if len(authenticationRequest.Scopes) == 0 ||
+		!contains(authenticationRequest.Scopes, "openid") ||
 		authenticationRequest.ResponseType == "" ||
+		authenticationRequest.ResponseType != "code" ||
 		authenticationRequest.ClientId == "" ||
 		authenticationRequest.RedirectUri == "" {
 		return c.String(http.StatusBadRequest, "Missing required parameters")
 	}
+	// Validate the client and redirect URI as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 and respond if an error
+	// Validate that the client exists
+	clientExists, err := ClientExists(db, authenticationRequest.ClientId)
+	if err != nil {
+		return err
+	}
+	if !clientExists {
+		return c.String(http.StatusBadRequest, "Client does not exist")
+	}
+	// Validate that the redirect URI is registered for the client
+	redirectUriExists, err := RedirectUriExists(db, authenticationRequest.ClientId, authenticationRequest.RedirectUri)
+	if err != nil {
+		return err
+	}
+	if !redirectUriExists {
+		return c.String(http.StatusBadRequest, "Redirect URI is not registered for client")
+	}
+	// all is well, show login page
+	return showLogin(c)
+}
+
+func RedirectUriExists(db *sql.DB, clientId string, redirectUri string) (bool, error) {
+	rows, err := db.Query("SELECT client_id FROM client_redirect_uris WHERE client_id = ? AND redirect_uri = ?", clientId, redirectUri)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	return rows.Next(), nil
+}
+
+func ClientExists(db *sql.DB, s string) (bool, error) {
+	rows, err := db.Query("SELECT id FROM clients WHERE id = ?", s)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	return rows.Next(), nil
 }
 
 func getParam(c echo.Context, paramName string) string {
@@ -134,4 +170,13 @@ type Template struct {
 
 func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
 	return t.templates.ExecuteTemplate(w, name, data)
+}
+
+func contains(list []string, item string) bool {
+	for _, i := range list {
+		if i == item {
+			return true
+		}
+	}
+	return false
 }
