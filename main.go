@@ -11,9 +11,11 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/gurkankaymak/hocon"
 	"github.com/joho/godotenv"
 	"github.com/kirsle/configdir"
+	"github.com/knadh/koanf/parsers/json"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
 )
 
 func main() {
@@ -32,7 +34,7 @@ func main() {
 	if passwordToHash != "" {
 		hash, err := crypto.HashPassword(passwordToHash)
 		if err != nil {
-			panic(err)
+			log.Fatalf("Error hashing password: %s", err)
 		}
 		fmt.Println(hash)
 	} else if initdbPassword != "" && initdbUsername != "" {
@@ -43,31 +45,43 @@ func main() {
 	} else {
 		err := godotenv.Load()
 		if err != nil {
-			panic(fmt.Errorf("error loading .env file: %s", err))
+			log.Fatalf("error loading .env file: %s", err)
 		}
-		conf, err := hocon.ParseResource(configdir.LocalConfig("openidprovider") + "/openidprovider.hocon")
-		if err != nil {
-			log.Fatal("error while parsing configuration: ", err)
-		}
-		configuredClients := conf.GetObject("registeredcliients")
-		registeredClients := make(map[domain.ClientId][]domain.ClientRedirectUri)
-		for client := range configuredClients {
-			clientId := client
-			redirectUris := make([]domain.ClientRedirectUri, 0, 1)
-			// TODO: continue here, i do not know how to read a nested array using this library
-			// maybe try koanf as a replacement?
-			for redirectUri := range configuredClients[clientId]. {
-				redirectUris = append(redirectUris, redirectUri.GetString())
-			}
-			registeredClients[domain.ClientId(clientId)] = redirectUris
-		}
+
+		registeredClients := readRegisteredClients()
 
 		server.RunServer(dbName, domain.Configuration{
 			ServerReadTimeoutSeconds:  getIntFromEnv("OPENIDPROVIDER_SERVER_READ_TIMEOUT_SECONDS", 5),
 			ServerWriteTimeoutSeconds: getIntFromEnv("OPENIDPROVIDER_SERVER_WRITE_TIMEOUT_SECONDS", 10),
 			ServerPort:                getIntFromEnv("OPENIDPROVIDER_SERVER_PORT", 1323),
+			RegisteredClients:         registeredClients,
 		})
 	}
+}
+
+func readRegisteredClients() map[string][]string {
+	var k = koanf.New(".")
+	if err := k.Load(file.Provider(configdir.LocalConfig("openidprovider")+"/openidprovider.json"), json.Parser()); err != nil {
+		log.Fatalf("error loading config: %v", err)
+	}
+	configuredClients := k.Get("registeredclients")
+	clients, ok := configuredClients.([]map[string]interface{})
+	if !ok {
+		log.Fatalf("registeredclients is not an array of objects")
+	}
+	registeredClients := make(map[domain.ClientId][]domain.ClientRedirectUri)
+	for _, client := range clients {
+		clientId, ok := client["id"].(string)
+		if !ok {
+			log.Fatalf("client id is not a string")
+		}
+		redirectUris, ok := client["redirecturis"].([]string)
+		if !ok {
+			log.Fatalf("redirect uris is not an array of strings")
+		}
+		registeredClients[domain.ClientId(clientId)] = redirectUris
+	}
+	return registeredClients
 }
 
 func requireStringFromEnv(s string) string {
