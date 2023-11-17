@@ -25,6 +25,8 @@ Limitations of the implementation:
 
 ## TODO
 
+- Implement regular `codes` cleanup (remove after expiry)
+- Implement the token endpoint <https://openid.net/specs/openid-connect-core-1_0.html#TokenEndpoint>
 - Support `prompt` with the value `none` in the authorization request by immediately returning an error (since we always reauthenticate, and in this case we shouldn't)
 - Support `nonce` in the authorization request
 - Go through all the security considerations of the OAuth 2 spec and verify whether additional measures are needed
