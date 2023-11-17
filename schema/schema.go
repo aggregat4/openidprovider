@@ -106,6 +106,15 @@ var migrations = []Migration{
 			password TEXT NOT NULL,
 			last_update INTEGER NOT NULL
 		);
+		
+		CREATE TABLE IF NOT EXISTS codes (
+			id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+			code TEXT NOT NULL,
+			username TEXT NOT NULL,
+			client_id TEXT NOT NULL,
+			redirect_uri TEXT NOT NULL,
+			created INTEGER NOT NULL
+		);
 		`,
 	},
 }

@@ -57,6 +57,9 @@
     </label>
     <button type="submit">Login</button>
     <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
+    <input type="hidden" name="clientid" value="{{.ClientId}}">
+    <input type="hidden" name="redirecturi" value="{{.RedirectUri}}">
+    <input type="hidden" name="state" value="{{.State}}">
   </form>  
 </body>
 </html>

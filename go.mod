@@ -21,6 +21,7 @@ require (
 )
 
 require (
+	github.com/google/uuid v1.4.0
 	github.com/knadh/koanf/parsers/json v0.1.0
 	github.com/labstack/gommon v0.4.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
