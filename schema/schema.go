@@ -108,8 +108,7 @@ var migrations = []Migration{
 		);
 		
 		CREATE TABLE IF NOT EXISTS codes (
-			id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-			code TEXT NOT NULL,
+			code TEXT NOT NULL PRIMARY KEY,
 			username TEXT NOT NULL,
 			client_id TEXT NOT NULL,
 			redirect_uri TEXT NOT NULL,

@@ -59,7 +59,7 @@ func main() {
 	}
 }
 
-func readRegisteredClients() map[string][]string {
+func readRegisteredClients() map[string]domain.Client {
 	var k = koanf.New(".")
 	if err := k.Load(file.Provider(configdir.LocalConfig("openidprovider")+"/openidprovider.json"), json.Parser()); err != nil {
 		log.Fatalf("error loading config: %v", err)
@@ -69,17 +69,25 @@ func readRegisteredClients() map[string][]string {
 	if !ok {
 		log.Fatalf("registeredclients is not an array of objects")
 	}
-	registeredClients := make(map[domain.ClientId][]domain.ClientRedirectUri)
+	registeredClients := make(map[domain.ClientId]domain.Client)
 	for _, client := range clients {
 		clientId, ok := client["id"].(string)
 		if !ok {
 			log.Fatalf("client id is not a string")
 		}
+		clientSecret, ok := client["secret"].(string)
+		if !ok {
+			log.Fatalf("client secret is not a string")
+		}
 		redirectUris, ok := client["redirecturis"].([]string)
 		if !ok {
 			log.Fatalf("redirect uris is not an array of strings")
 		}
-		registeredClients[domain.ClientId(clientId)] = redirectUris
+		registeredClients[domain.ClientId(clientId)] = domain.Client{
+			Id:           domain.ClientId(clientId),
+			RedirectUris: redirectUris,
+			Secret:       clientSecret,
+		}
 	}
 	return registeredClients
 }

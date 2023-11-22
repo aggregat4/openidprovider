@@ -4,6 +4,7 @@ import (
 	"aggregat4/openidprovider/crypto"
 	"aggregat4/openidprovider/domain"
 	"aggregat4/openidprovider/schema"
+	"crypto/subtle"
 	"database/sql"
 	"embed"
 	"html/template"
@@ -47,6 +48,24 @@ func RunServer(dbName string, config domain.Configuration) {
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLookup: "form:csrf_token",
 	}))
+	e.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
+		Skipper: func(c echo.Context) bool {
+			// we only require basic auth for the token endpoint for now
+			return c.Path() != "/token"
+		},
+		Validator: func(username, password string, c echo.Context) (bool, error) {
+			client, clientExists := config.RegisteredClients[username]
+			if !clientExists {
+				// make sure we nevertheless compare the username and password to make timing attacks harder
+				subtle.ConstantTimeCompare([]byte(username), []byte("this is not a valid client id"))
+				subtle.ConstantTimeCompare([]byte(password), []byte("this is not a valid client secret"))
+				return false, nil
+			}
+			c.Set("client_id", client.Id)
+			return (subtle.ConstantTimeCompare([]byte(username), []byte(client.Id)) == 1 &&
+				subtle.ConstantTimeCompare([]byte(password), []byte(client.Secret)) == 1), nil
+		},
+	}))
 
 	// We don't need to allow showing the login page directly, it will only be used as a response to an
 	// authorization request
@@ -56,11 +75,87 @@ func RunServer(dbName string, config domain.Configuration) {
 	e.GET("/authorize", func(c echo.Context) error { return authorize(config.RegisteredClients, c) })
 	e.POST("/authorize", func(c echo.Context) error { return authorize(config.RegisteredClients, c) })
 
+	e.POST("/token", func(c echo.Context) error { return token(config.RegisteredClients, db, c) })
+
 	e.Logger.Fatal(e.Start(":" + strconv.Itoa(config.ServerPort)))
 	// NO MORE CODE HERE, IT WILL NOT BE EXECUTED
 }
 
-func authorize(clientRegistry map[domain.ClientId][]domain.ClientRedirectUri, c echo.Context) error {
+// OIDC Token Endpoint is described in:
+// https://openid.net/specs/openid-connect-basic-1_0.html#ObtainingTokens
+// Reference to the OAuth 2 spec:
+// https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
+// Error handling as per https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
+func token(clients map[string]domain.Client, db *sql.DB, c echo.Context) error {
+	clientId := c.Get("client_id").(string)
+	// Validate that the client exists
+	client, clientExists := clients[clientId]
+	if !clientExists {
+		return sendOauthAccessTokenError(c, "invalid_client")
+	}
+	// Validate that the redirect URI is registered for the client
+	redirectUri := c.FormValue("redirect_uri")
+	if !contains(client.RedirectUris, redirectUri) {
+		return sendOauthAccessTokenError(c, "invalid_client")
+	}
+	// we assume that basic auth has happened and the secret matches, proceed to verify the grant type and code
+	grantType := c.FormValue("grant_type")
+	if grantType != "authorization_code" {
+		sendOauthAccessTokenError(c, "unsupported_grant_type")
+	}
+	code := c.FormValue("code")
+	// validate that the code exists
+	rows, err := db.Query("SELECT username, client_id, redirect_uri FROM codes WHERE code = ?", code)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		sendOauthAccessTokenError(c, "invalid_grant")
+	}
+	var codeUsername, codeClientId, codeRedirectUri string
+	err = rows.Scan(&codeUsername, &codeClientId, &codeRedirectUri)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+	// Code was used once, delete it
+	_, err = db.Exec("DELETE FROM codes WHERE code = ?", code)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+	// Validate that the code is for the correct client and redirect URI
+	if codeClientId != clientId || codeRedirectUri != redirectUri {
+		sendOauthAccessTokenError(c, "invalid_grant")
+	}
+	// Finally, generate the access token
+	accessToken := uuid.New().String()
+	// TODO: figure out what I need to store for access tokens so I can fulfill the requirements for the UserInfo Endpoint
+	// _, err = db.Exec("INSERT INTO access_tokens (access_token, username, client_id, created) VALUES (?, ?, ?, ?)", accessToken, codeUsername, clientId, time.Now().Unix())
+	// if err != nil {
+	// 	return c.String(http.StatusInternalServerError, "Internal error")
+	// }
+
+	// Respond with the access token
+	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
+	idToken, err := generateIdToken(clientId, codeUsername)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+	// TODO: figure out if I want to set the expires_in parameter
+	return c.String(http.StatusOK, "{\"access_token\":\""+accessToken+"\", \"token_type\":\"Bearer\", \"id_token\":\""+idToken+"\"")
+}
+
+func generateIdToken(clientId, codeUsername string) (string, error) {
+	// generate the OIDC id token
+	// TODO: continue here
+}
+
+func sendOauthAccessTokenError(c echo.Context, s string) error {
+	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
+	return c.String(http.StatusBadRequest, "{\"error\":\""+s+"\"}")
+}
+
+func authorize(clientRegistry map[domain.ClientId]domain.Client, c echo.Context) error {
 	authenticationRequest := domain.OidcAuthenticationRequest{
 		Scopes:       strings.Split(getParam(c, "scope"), " "),
 		ResponseType: getParam(c, "response_type"),
@@ -79,12 +174,12 @@ func authorize(clientRegistry map[domain.ClientId][]domain.ClientRedirectUri, c 
 	}
 	// Validate the client and redirect URI as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 and respond if an error
 	// Validate that the client exists
-	redirectUris, clientExists := clientRegistry[authenticationRequest.ClientId]
+	client, clientExists := clientRegistry[authenticationRequest.ClientId]
 	if !clientExists {
 		return c.String(http.StatusBadRequest, "Client does not exist")
 	}
 	// Validate that the redirect URI is registered for the client
-	if !contains(redirectUris, authenticationRequest.RedirectUri) {
+	if !contains(client.RedirectUris, authenticationRequest.RedirectUri) {
 		return c.String(http.StatusBadRequest, "Redirect URI is not registered for client")
 	}
 	// all is well, show login page
@@ -116,7 +211,7 @@ type LoginPage struct {
 // interpreted as returning a 302 redirect with an error code in the query string for all these errors
 // But since this treat a potential malicious client as a real client, this seems unwise? Or is it better
 // to return an OAuth error so the implementor of a buggy client can see what's wrong?
-func login(clientRegistry map[domain.ClientId][]domain.ClientRedirectUri, db *sql.DB, c echo.Context) error {
+func login(clientRegistry map[domain.ClientId]domain.Client, db *sql.DB, c echo.Context) error {
 	clientId := c.FormValue("clientid")
 	redirectUri := c.FormValue("redirecturi")
 	fullRedirectUri, err := url.Parse(redirectUri)
@@ -124,12 +219,12 @@ func login(clientRegistry map[domain.ClientId][]domain.ClientRedirectUri, db *sq
 		return c.String(http.StatusBadRequest, "Invalid redirect URI")
 	}
 	state := c.FormValue("state")
-	redirectUris, clientExists := clientRegistry[clientId]
+	client, clientExists := clientRegistry[clientId]
 	if !clientExists {
 		return c.String(http.StatusBadRequest, "Client does not exist")
 	}
 	// Validate that the redirect URI is registered for the client
-	if !contains(redirectUris, redirectUri) {
+	if !contains(client.RedirectUris, redirectUri) {
 		return c.String(http.StatusBadRequest, "Redirect URI is not registered for client")
 	}
 	username := c.FormValue("username")
