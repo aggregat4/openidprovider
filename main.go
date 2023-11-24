@@ -104,17 +104,12 @@ func readConfig() domain.Configuration {
 	if !ok {
 		log.Fatalf("issuer is not a string")
 	}
-	signingKey, ok := jwt["signingkey"].(string)
-	if !ok {
-		log.Fatalf("signingkey is not a string")
-	}
 	idTokenValidityMinutes, ok := jwt["idtokenvalidityminutes"].(float64)
 	if !ok {
 		log.Fatalf("idtokenvalidityminutes is not a number")
 	}
 	jwtConfig := domain.JwtConfiguration{
 		Issuer:                 issuer,
-		SigningKey:             signingKey,
 		IdTokenValidityMinutes: int(idTokenValidityMinutes),
 	}
 	return domain.Configuration{

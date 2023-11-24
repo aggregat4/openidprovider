@@ -138,7 +138,7 @@ func token(config domain.Configuration, db *sql.DB, c echo.Context) error {
 
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
-	idToken, err := generateIdToken(config.JwtConfig, clientId, codeUserId)
+	idToken, err := generateIdToken(config.JwtConfig, clientId, client.Secret, codeUserId)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -147,8 +147,8 @@ func token(config domain.Configuration, db *sql.DB, c echo.Context) error {
 }
 
 // See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
-func generateIdToken(jwtConfig domain.JwtConfiguration, clientId string, userId string) (string, error) {
-	key := ([]byte(jwtConfig.SigningKey))
+func generateIdToken(jwtConfig domain.JwtConfiguration, clientId string, clientSecret string, userId string) (string, error) {
+	key := ([]byte(clientSecret))
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"iss": jwtConfig.Issuer,
 		"sub": userId,

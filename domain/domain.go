@@ -10,7 +10,6 @@ type Client struct {
 
 type JwtConfiguration struct {
 	Issuer                 string
-	SigningKey             string
 	IdTokenValidityMinutes int
 }
 
