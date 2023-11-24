@@ -102,6 +102,7 @@ var migrations = []Migration{
 
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
 			username TEXT NOT NULL,
 			password TEXT NOT NULL,
 			last_update INTEGER NOT NULL
@@ -109,7 +110,7 @@ var migrations = []Migration{
 		
 		CREATE TABLE IF NOT EXISTS codes (
 			code TEXT NOT NULL PRIMARY KEY,
-			username TEXT NOT NULL,
+			user_id TEXT NOT NULL,
 			client_id TEXT NOT NULL,
 			redirect_uri TEXT NOT NULL,
 			created INTEGER NOT NULL

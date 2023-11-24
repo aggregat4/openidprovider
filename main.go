@@ -48,22 +48,28 @@ func main() {
 			log.Fatalf("error loading .env file: %s", err)
 		}
 
-		registeredClients := readRegisteredClients()
-
-		server.RunServer(dbName, domain.Configuration{
-			ServerReadTimeoutSeconds:  getIntFromEnv("OPENIDPROVIDER_SERVER_READ_TIMEOUT_SECONDS", 5),
-			ServerWriteTimeoutSeconds: getIntFromEnv("OPENIDPROVIDER_SERVER_WRITE_TIMEOUT_SECONDS", 10),
-			ServerPort:                getIntFromEnv("OPENIDPROVIDER_SERVER_PORT", 1323),
-			RegisteredClients:         registeredClients,
-		})
+		server.RunServer(dbName, readConfig())
 	}
 }
 
-func readRegisteredClients() map[string]domain.Client {
+func readConfig() domain.Configuration {
 	var k = koanf.New(".")
 	if err := k.Load(file.Provider(configdir.LocalConfig("openidprovider")+"/openidprovider.json"), json.Parser()); err != nil {
 		log.Fatalf("error loading config: %v", err)
 	}
+	serverReadTimeoutSeconds, ok := k.Get("serverreadtimeoutseconds").(int)
+	if !ok {
+		serverReadTimeoutSeconds = 5
+	}
+	serverWriteTimeoutSeconds, ok := k.Get("serverwritetimeoutseconds").(int)
+	if !ok {
+		serverWriteTimeoutSeconds = 10
+	}
+	serverPort, ok := k.Get("serverport").(int)
+	if !ok {
+		serverPort = 1323
+	}
+
 	configuredClients := k.Get("registeredclients")
 	clients, ok := configuredClients.([]map[string]interface{})
 	if !ok {
@@ -89,7 +95,35 @@ func readRegisteredClients() map[string]domain.Client {
 			Secret:       clientSecret,
 		}
 	}
-	return registeredClients
+	configuredJwt := k.Get("jwt")
+	jwt, ok := configuredJwt.(map[string]interface{})
+	if !ok {
+		log.Fatalf("jwt is not an object")
+	}
+	issuer, ok := jwt["issuer"].(string)
+	if !ok {
+		log.Fatalf("issuer is not a string")
+	}
+	signingKey, ok := jwt["signingkey"].(string)
+	if !ok {
+		log.Fatalf("signingkey is not a string")
+	}
+	idTokenValidityMinutes, ok := jwt["idtokenvalidityminutes"].(float64)
+	if !ok {
+		log.Fatalf("idtokenvalidityminutes is not a number")
+	}
+	jwtConfig := domain.JwtConfiguration{
+		Issuer:                 issuer,
+		SigningKey:             signingKey,
+		IdTokenValidityMinutes: int(idTokenValidityMinutes),
+	}
+	return domain.Configuration{
+		ServerReadTimeoutSeconds:  serverReadTimeoutSeconds,
+		ServerWriteTimeoutSeconds: serverWriteTimeoutSeconds,
+		ServerPort:                serverPort,
+		RegisteredClients:         registeredClients,
+		JwtConfig:                 jwtConfig,
+	}
 }
 
 func requireStringFromEnv(s string) string {

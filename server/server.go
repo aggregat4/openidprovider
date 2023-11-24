@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
@@ -75,7 +76,7 @@ func RunServer(dbName string, config domain.Configuration) {
 	e.GET("/authorize", func(c echo.Context) error { return authorize(config.RegisteredClients, c) })
 	e.POST("/authorize", func(c echo.Context) error { return authorize(config.RegisteredClients, c) })
 
-	e.POST("/token", func(c echo.Context) error { return token(config.RegisteredClients, db, c) })
+	e.POST("/token", func(c echo.Context) error { return token(config, db, c) })
 
 	e.Logger.Fatal(e.Start(":" + strconv.Itoa(config.ServerPort)))
 	// NO MORE CODE HERE, IT WILL NOT BE EXECUTED
@@ -86,10 +87,10 @@ func RunServer(dbName string, config domain.Configuration) {
 // Reference to the OAuth 2 spec:
 // https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 // Error handling as per https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
-func token(clients map[string]domain.Client, db *sql.DB, c echo.Context) error {
+func token(config domain.Configuration, db *sql.DB, c echo.Context) error {
 	clientId := c.Get("client_id").(string)
 	// Validate that the client exists
-	client, clientExists := clients[clientId]
+	client, clientExists := config.RegisteredClients[clientId]
 	if !clientExists {
 		return sendOauthAccessTokenError(c, "invalid_client")
 	}
@@ -105,7 +106,7 @@ func token(clients map[string]domain.Client, db *sql.DB, c echo.Context) error {
 	}
 	code := c.FormValue("code")
 	// validate that the code exists
-	rows, err := db.Query("SELECT username, client_id, redirect_uri FROM codes WHERE code = ?", code)
+	rows, err := db.Query("SELECT user_id, client_id, redirect_uri FROM codes WHERE code = ?", code)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -113,8 +114,8 @@ func token(clients map[string]domain.Client, db *sql.DB, c echo.Context) error {
 	if !rows.Next() {
 		sendOauthAccessTokenError(c, "invalid_grant")
 	}
-	var codeUsername, codeClientId, codeRedirectUri string
-	err = rows.Scan(&codeUsername, &codeClientId, &codeRedirectUri)
+	var codeUserId, codeClientId, codeRedirectUri string
+	err = rows.Scan(&codeUserId, &codeClientId, &codeRedirectUri)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -137,7 +138,7 @@ func token(clients map[string]domain.Client, db *sql.DB, c echo.Context) error {
 
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
-	idToken, err := generateIdToken(clientId, codeUsername)
+	idToken, err := generateIdToken(config.JwtConfig, clientId, codeUserId)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -145,9 +146,17 @@ func token(clients map[string]domain.Client, db *sql.DB, c echo.Context) error {
 	return c.String(http.StatusOK, "{\"access_token\":\""+accessToken+"\", \"token_type\":\"Bearer\", \"id_token\":\""+idToken+"\"")
 }
 
-func generateIdToken(clientId, codeUsername string) (string, error) {
-	// generate the OIDC id token
-	// TODO: continue here
+// See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
+func generateIdToken(jwtConfig domain.JwtConfiguration, clientId string, userId string) (string, error) {
+	key := ([]byte(jwtConfig.SigningKey))
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"iss": jwtConfig.Issuer,
+		"sub": userId,
+		"aud": clientId,
+		"exp": time.Now().Add(time.Minute * time.Duration(jwtConfig.IdTokenValidityMinutes)).Unix(),
+		"iat": time.Now().Unix(),
+	})
+	return t.SignedString(key)
 }
 
 func sendOauthAccessTokenError(c echo.Context, s string) error {
@@ -155,39 +164,38 @@ func sendOauthAccessTokenError(c echo.Context, s string) error {
 	return c.String(http.StatusBadRequest, "{\"error\":\""+s+"\"}")
 }
 
+// No support for "nonce", "display", "prompt", "max_age", "ui_locales", "id_token_hint", "login_hint", "acr_values" yet
 func authorize(clientRegistry map[domain.ClientId]domain.Client, c echo.Context) error {
-	authenticationRequest := domain.OidcAuthenticationRequest{
-		Scopes:       strings.Split(getParam(c, "scope"), " "),
-		ResponseType: getParam(c, "response_type"),
-		ClientId:     getParam(c, "client_id"),
-		RedirectUri:  getParam(c, "redirect_uri"),
-		State:        getParam(c, "state"),
-	}
+	authReqScopes := strings.Split(getParam(c, "scope"), " ")
+	authReqResponseType := getParam(c, "response_type")
+	authReqClientId := getParam(c, "client_id")
+	authReqRedirectUri := getParam(c, "redirect_uri")
+	authReqState := getParam(c, "state")
 	// Do basic validation whether required parameters are present first and respond with bad request if not
-	if len(authenticationRequest.Scopes) == 0 ||
-		!contains(authenticationRequest.Scopes, "openid") ||
-		authenticationRequest.ResponseType == "" ||
-		authenticationRequest.ResponseType != "code" ||
-		authenticationRequest.ClientId == "" ||
-		authenticationRequest.RedirectUri == "" {
+	if len(authReqScopes) == 0 ||
+		!contains(authReqScopes, "openid") ||
+		authReqResponseType == "" ||
+		authReqResponseType != "code" ||
+		authReqClientId == "" ||
+		authReqRedirectUri == "" {
 		return c.String(http.StatusBadRequest, "Missing required parameters")
 	}
 	// Validate the client and redirect URI as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 and respond if an error
 	// Validate that the client exists
-	client, clientExists := clientRegistry[authenticationRequest.ClientId]
+	client, clientExists := clientRegistry[authReqClientId]
 	if !clientExists {
 		return c.String(http.StatusBadRequest, "Client does not exist")
 	}
 	// Validate that the redirect URI is registered for the client
-	if !contains(client.RedirectUris, authenticationRequest.RedirectUri) {
+	if !contains(client.RedirectUris, authReqRedirectUri) {
 		return c.String(http.StatusBadRequest, "Redirect URI is not registered for client")
 	}
 	// all is well, show login page
 	return c.Render(http.StatusOK, "login", LoginPage{
 		CsrfToken:   c.Get("csrf").(string),
-		ClientId:    authenticationRequest.ClientId,
-		RedirectUri: authenticationRequest.RedirectUri,
-		State:       authenticationRequest.State})
+		ClientId:    authReqClientId,
+		RedirectUri: authReqRedirectUri,
+		State:       authReqState})
 }
 
 func getParam(c echo.Context, paramName string) string {
@@ -230,16 +238,17 @@ func login(clientRegistry map[domain.ClientId]domain.Client, db *sql.DB, c echo.
 	username := c.FormValue("username")
 	password := c.FormValue("password")
 
-	rows, err := db.Query("SELECT id, password FROM users WHERE username = ?", username)
+	rows, err := db.Query("SELECT id, user_id, password FROM users WHERE username = ?", username)
 	if err != nil {
 		return sendInternalError(c, fullRedirectUri, state)
 	}
 	defer rows.Close()
 
 	if rows.Next() {
+		var internalUserId int
+		var externalUserId string
 		var passwordHash string
-		var userid int
-		err = rows.Scan(&userid, &passwordHash)
+		err = rows.Scan(&internalUserId, &externalUserId, &passwordHash)
 
 		if err != nil {
 			return sendInternalError(c, fullRedirectUri, state)
@@ -247,7 +256,7 @@ func login(clientRegistry map[domain.ClientId]domain.Client, db *sql.DB, c echo.
 
 		if crypto.CheckPasswordHash(password, passwordHash) {
 			// See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
-			code, err := generateCode(db, clientId, redirectUri, username)
+			code, err := generateCode(db, clientId, redirectUri, externalUserId)
 			if err != nil {
 				// generateCode should never fail
 				return sendInternalError(c, fullRedirectUri, state)
@@ -282,10 +291,10 @@ func sendOauthError(c echo.Context, redirectUri *url.URL, errorCode string, desc
 // See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
 // See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
 // See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
-func generateCode(db *sql.DB, clientId, redirectUri, username string) (string, error) {
+func generateCode(db *sql.DB, clientId, redirectUri, externalUserId string) (string, error) {
 	uuid := uuid.New().String()
 	// insert this new code in the database
-	_, err := db.Exec("INSERT INTO codes (code, username, client_id, redirect_uri, created) VALUES (?, ?, ?, ?, ?)", uuid, username, clientId, redirectUri, time.Now().Unix())
+	_, err := db.Exec("INSERT INTO codes (code, user_id, client_id, redirect_uri, created) VALUES (?, ?, ?, ?, ?)", uuid, externalUserId, clientId, redirectUri, time.Now().Unix())
 	if err != nil {
 		return "", err
 	}
