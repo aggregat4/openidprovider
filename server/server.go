@@ -25,6 +25,12 @@ import (
 var viewTemplates embed.FS
 
 func RunServer(dbName string, config domain.Configuration) {
+	e := InitServer(dbName, config)
+	e.Logger.Fatal(e.Start(":" + strconv.Itoa(config.ServerPort)))
+	// NO MORE CODE HERE, IT WILL NOT BE EXECUTED
+}
+
+func InitServer(dbName string, config domain.Configuration) *echo.Echo {
 	db, err := schema.InitAndVerifyDb(dbName)
 	if err != nil {
 		panic(err)
@@ -77,9 +83,7 @@ func RunServer(dbName string, config domain.Configuration) {
 	e.POST("/authorize", func(c echo.Context) error { return authorize(config.RegisteredClients, c) })
 
 	e.POST("/token", func(c echo.Context) error { return token(config, db, c) })
-
-	e.Logger.Fatal(e.Start(":" + strconv.Itoa(config.ServerPort)))
-	// NO MORE CODE HERE, IT WILL NOT BE EXECUTED
+	return e
 }
 
 // OIDC Token Endpoint is described in:
