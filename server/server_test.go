@@ -33,6 +33,7 @@ var serverConfig = domain.Configuration{
 }
 
 func TestAuthorizeWithoutParameters(t *testing.T) {
+	// TODO: continue here: try to implement an echo like test as on https://echo.labstack.com/docs/testing
 	echoServer := waitForServer()
 	res, err := http.Get("http://localhost:1323/authorize")
 	if err != nil {
