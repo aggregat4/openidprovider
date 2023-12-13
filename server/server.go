@@ -5,7 +5,6 @@ import (
 	"aggregat4/openidprovider/domain"
 	"aggregat4/openidprovider/schema"
 	"crypto/subtle"
-	"database/sql"
 	"embed"
 	"html/template"
 	"io"
@@ -25,18 +24,17 @@ import (
 var viewTemplates embed.FS
 
 func RunServer(dbName string, config domain.Configuration) {
-	e := InitServer(dbName, config)
+	var store schema.Store
+	err := store.InitAndVerifyDb(dbName)
+	if err != nil {
+		panic(err)
+	}
+	e := InitServer(store, config)
 	e.Logger.Fatal(e.Start(":" + strconv.Itoa(config.ServerPort)))
 	// NO MORE CODE HERE, IT WILL NOT BE EXECUTED
 }
 
-func InitServer(dbName string, config domain.Configuration) *echo.Echo {
-	db, err := schema.InitAndVerifyDb(dbName)
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
-
+func InitServer(store schema.Store, config domain.Configuration) *echo.Echo {
 	e := echo.New()
 	// Set server timeouts based on advice from https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/#1687428081
 	e.Server.ReadTimeout = time.Duration(config.ServerReadTimeoutSeconds) * time.Second
@@ -77,12 +75,12 @@ func InitServer(dbName string, config domain.Configuration) *echo.Echo {
 	// We don't need to allow showing the login page directly, it will only be used as a response to an
 	// authorization request
 	// e.GET("/login", func(c echo.Context) error { return showLogin(c) })
-	e.POST("/login", func(c echo.Context) error { return login(config.RegisteredClients, db, c) })
+	e.POST("/login", func(c echo.Context) error { return login(config.RegisteredClients, store, c) })
 
 	e.GET("/authorize", func(c echo.Context) error { return authorize(config.RegisteredClients, c) })
 	e.POST("/authorize", func(c echo.Context) error { return authorize(config.RegisteredClients, c) })
 
-	e.POST("/token", func(c echo.Context) error { return token(config, db, c) })
+	e.POST("/token", func(c echo.Context) error { return token(config, store, c) })
 	return e
 }
 
@@ -91,7 +89,7 @@ func InitServer(dbName string, config domain.Configuration) *echo.Echo {
 // Reference to the OAuth 2 spec:
 // https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 // Error handling as per https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
-func token(config domain.Configuration, db *sql.DB, c echo.Context) error {
+func token(config domain.Configuration, store schema.Store, c echo.Context) error {
 	clientId := c.Get("client_id").(string)
 	// Validate that the client exists
 	client, clientExists := config.RegisteredClients[clientId]
@@ -109,29 +107,27 @@ func token(config domain.Configuration, db *sql.DB, c echo.Context) error {
 		sendOauthAccessTokenError(c, "unsupported_grant_type")
 	}
 	code := c.FormValue("code")
+
 	// validate that the code exists
-	rows, err := db.Query("SELECT user_id, client_id, redirect_uri FROM codes WHERE code = ?", code)
+	existingCode, err := store.FindCode(code)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
-	defer rows.Close()
-	if !rows.Next() {
+	if existingCode == nil {
 		sendOauthAccessTokenError(c, "invalid_grant")
 	}
-	var codeUserId, codeClientId, codeRedirectUri string
-	err = rows.Scan(&codeUserId, &codeClientId, &codeRedirectUri)
-	if err != nil {
-		return c.String(http.StatusInternalServerError, "Internal error")
-	}
+
 	// Code was used once, delete it
-	_, err = db.Exec("DELETE FROM codes WHERE code = ?", code)
+	err = store.DeleteCode(code)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
+
 	// Validate that the code is for the correct client and redirect URI
-	if codeClientId != clientId || codeRedirectUri != redirectUri {
+	if existingCode.ClientId != clientId || existingCode.RedirectUri != redirectUri {
 		sendOauthAccessTokenError(c, "invalid_grant")
 	}
+
 	// Finally, generate the access token
 	accessToken := uuid.New().String()
 	// TODO: figure out what I need to store for access tokens so I can fulfill the requirements for the UserInfo Endpoint
@@ -142,7 +138,7 @@ func token(config domain.Configuration, db *sql.DB, c echo.Context) error {
 
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
-	idToken, err := generateIdToken(config.JwtConfig, clientId, client.Secret, codeUserId)
+	idToken, err := generateIdToken(config.JwtConfig, clientId, client.Secret, existingCode.UserId)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -223,7 +219,7 @@ type LoginPage struct {
 // interpreted as returning a 302 redirect with an error code in the query string for all these errors
 // But since this treat a potential malicious client as a real client, this seems unwise? Or is it better
 // to return an OAuth error so the implementor of a buggy client can see what's wrong?
-func login(clientRegistry map[domain.ClientId]domain.Client, db *sql.DB, c echo.Context) error {
+func login(clientRegistry map[domain.ClientId]domain.Client, store schema.Store, c echo.Context) error {
 	clientId := c.FormValue("clientid")
 	redirectUri := c.FormValue("redirecturi")
 	fullRedirectUri, err := url.Parse(redirectUri)
@@ -242,35 +238,22 @@ func login(clientRegistry map[domain.ClientId]domain.Client, db *sql.DB, c echo.
 	username := c.FormValue("username")
 	password := c.FormValue("password")
 
-	rows, err := db.Query("SELECT id, user_id, password FROM users WHERE username = ?", username)
+	// find the user and validate password
+	user, err := store.FindUser(username)
 	if err != nil {
 		return sendInternalError(c, fullRedirectUri, state)
 	}
-	defer rows.Close()
-
-	if rows.Next() {
-		var internalUserId int
-		var externalUserId string
-		var passwordHash string
-		err = rows.Scan(&internalUserId, &externalUserId, &passwordHash)
-
+	if crypto.CheckPasswordHash(password, user.Password) {
+		// See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
+		code, err := generateCode(store, clientId, redirectUri, user.UserId)
 		if err != nil {
 			return sendInternalError(c, fullRedirectUri, state)
 		}
-
-		if crypto.CheckPasswordHash(password, passwordHash) {
-			// See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
-			code, err := generateCode(db, clientId, redirectUri, externalUserId)
-			if err != nil {
-				// generateCode should never fail
-				return sendInternalError(c, fullRedirectUri, state)
-			}
-			query := fullRedirectUri.Query()
-			query.Add("code", code)
-			query.Add("state", state)
-			fullRedirectUri.RawQuery = query.Encode()
-			return c.Redirect(http.StatusFound, fullRedirectUri.String())
-		}
+		query := fullRedirectUri.Query()
+		query.Add("code", code)
+		query.Add("state", state)
+		fullRedirectUri.RawQuery = query.Encode()
+		return c.Redirect(http.StatusFound, fullRedirectUri.String())
 	}
 
 	// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
@@ -295,14 +278,10 @@ func sendOauthError(c echo.Context, redirectUri *url.URL, errorCode string, desc
 // See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
 // See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
 // See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
-func generateCode(db *sql.DB, clientId, redirectUri, externalUserId string) (string, error) {
+func generateCode(store schema.Store, clientId, redirectUri, externalUserId string) (string, error) {
 	uuid := uuid.New().String()
-	// insert this new code in the database
-	_, err := db.Exec("INSERT INTO codes (code, user_id, client_id, redirect_uri, created) VALUES (?, ?, ?, ?, ?)", uuid, externalUserId, clientId, redirectUri, time.Now().Unix())
-	if err != nil {
-		return "", err
-	}
-	return uuid, nil
+	err := store.SaveCode(schema.Code{Code: uuid, UserId: externalUserId, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
+	return uuid, err
 }
 
 type Template struct {

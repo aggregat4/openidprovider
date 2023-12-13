@@ -27,20 +27,19 @@ func main() {
 	flag.StringVar(&initdbPassword, "initdb-pass", "", "Initializes the database with a user with this password, contents must be bcrypt encoded")
 	var initdbUsername string
 	flag.StringVar(&initdbUsername, "initdb-username", "", "Initializes the database with a user with this username")
-
-	var passwordToHash string
-	flag.StringVar(&passwordToHash, "passwordtohash", "", "A password that should be hashed and salted and the output sent to stdout")
-
 	flag.Parse()
 
-	if passwordToHash != "" {
-		hash, err := crypto.HashPassword(passwordToHash)
+	if initdbPassword != "" && initdbUsername != "" {
+		var store schema.Store
+		err := store.InitAndVerifyDb(dbName)
+		if err != nil {
+			log.Fatalf("Error initializing database: %s", err)
+		}
+		hashedPassword, err := crypto.HashPassword(initdbPassword)
 		if err != nil {
 			log.Fatalf("Error hashing password: %s", err)
 		}
-		fmt.Println(hash)
-	} else if initdbPassword != "" && initdbUsername != "" {
-		err := schema.InitDatabaseWithUser(dbName, initdbUsername, initdbPassword)
+		err = store.CreateUser(initdbUsername, hashedPassword)
 		if err != nil {
 			log.Fatalf("Error initializing database: %s", err)
 		}

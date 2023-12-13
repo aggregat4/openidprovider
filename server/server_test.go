@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"aggregat4/openidprovider/domain"
+	"aggregat4/openidprovider/schema"
 	"aggregat4/openidprovider/server"
 	"io"
 	"net/http"
@@ -33,22 +34,23 @@ var serverConfig = domain.Configuration{
 
 func TestAuthorizeWithoutParameters(t *testing.T) {
 	echoServer := waitForServer()
-	res := httpCallMustSucceed(t, http.Get("http://localhost:1323/authorize"))
+	res, err := http.Get("http://localhost:1323/authorize")
+	if err != nil {
+		t.Fatal(err)
+	}
 	assert.Equal(t, 400, res.StatusCode)
 	// t.Log(res.StatusCode)
 	// t.Log(readBody(res))
 	echoServer.Close()
 }
 
-func httpCallMustSucceed(t *testing.T, (*res http.Response, err error)) {
-	if err != nil {
-		t.Fatal(err)
-	}
-	return res
-}
-
 func waitForServer() *echo.Echo {
-	echoServer := server.InitServer("test", serverConfig)
+	var store schema.Store
+	err := store.InitAndVerifyDb("test")
+	if err != nil {
+		panic(err)
+	}
+	echoServer := server.InitServer(store, serverConfig)
 	go func() {
 		echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
 	}()
