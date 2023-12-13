@@ -23,22 +23,27 @@ import (
 //go:embed public/views/*.html
 var viewTemplates embed.FS
 
+type Controller struct {
+	store  *schema.Store
+	config domain.Configuration
+}
+
 func RunServer(dbName string, config domain.Configuration) {
 	var store schema.Store
 	err := store.InitAndVerifyDb(dbName)
 	if err != nil {
 		panic(err)
 	}
-	e := InitServer(store, config)
+	e := InitServer(Controller{&store, config})
 	e.Logger.Fatal(e.Start(":" + strconv.Itoa(config.ServerPort)))
 	// NO MORE CODE HERE, IT WILL NOT BE EXECUTED
 }
 
-func InitServer(store schema.Store, config domain.Configuration) *echo.Echo {
+func InitServer(controller Controller) *echo.Echo {
 	e := echo.New()
 	// Set server timeouts based on advice from https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/#1687428081
-	e.Server.ReadTimeout = time.Duration(config.ServerReadTimeoutSeconds) * time.Second
-	e.Server.WriteTimeout = time.Duration(config.ServerWriteTimeoutSeconds) * time.Second
+	e.Server.ReadTimeout = time.Duration(controller.config.ServerReadTimeoutSeconds) * time.Second
+	e.Server.WriteTimeout = time.Duration(controller.config.ServerWriteTimeoutSeconds) * time.Second
 
 	t := &Template{
 		templates: template.Must(template.New("").ParseFS(viewTemplates, "public/views/*.html")),
@@ -47,41 +52,36 @@ func InitServer(store schema.Store, config domain.Configuration) *echo.Echo {
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
-		Level: 5,
-	}))
-	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
-		TokenLookup: "form:csrf_token",
-	}))
+	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{Level: 5}))
+	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{TokenLookup: "form:csrf_token"}))
 	e.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
+		// we only require basic auth for the token endpoint
 		Skipper: func(c echo.Context) bool {
-			// we only require basic auth for the token endpoint for now
 			return c.Path() != "/token"
 		},
-		Validator: func(username, password string, c echo.Context) (bool, error) {
-			client, clientExists := config.RegisteredClients[username]
-			if !clientExists {
-				// make sure we nevertheless compare the username and password to make timing attacks harder
-				subtle.ConstantTimeCompare([]byte(username), []byte("this is not a valid client id"))
-				subtle.ConstantTimeCompare([]byte(password), []byte("this is not a valid client secret"))
-				return false, nil
-			}
-			c.Set("client_id", client.Id)
-			return (subtle.ConstantTimeCompare([]byte(username), []byte(client.Id)) == 1 &&
-				subtle.ConstantTimeCompare([]byte(password), []byte(client.Secret)) == 1), nil
-		},
+		Validator: controller.basicAuthValidator,
 	}))
 
 	// We don't need to allow showing the login page directly, it will only be used as a response to an
-	// authorization request
-	// e.GET("/login", func(c echo.Context) error { return showLogin(c) })
-	e.POST("/login", func(c echo.Context) error { return login(config.RegisteredClients, store, c) })
-
-	e.GET("/authorize", func(c echo.Context) error { return authorize(config.RegisteredClients, c) })
-	e.POST("/authorize", func(c echo.Context) error { return authorize(config.RegisteredClients, c) })
-
-	e.POST("/token", func(c echo.Context) error { return token(config, store, c) })
+	// authorization request, so no GET on /login
+	e.POST("/login", controller.login)
+	e.GET("/authorize", controller.authorize)
+	e.POST("/authorize", controller.authorize)
+	e.POST("/token", controller.token)
 	return e
+}
+
+func (controller *Controller) basicAuthValidator(username, password string, c echo.Context) (bool, error) {
+	client, clientExists := controller.config.RegisteredClients[username]
+	if !clientExists {
+		// make sure we nevertheless compare the username and password to make timing attacks harder
+		subtle.ConstantTimeCompare([]byte(username), []byte("this is not a valid client id"))
+		subtle.ConstantTimeCompare([]byte(password), []byte("this is not a valid client secret"))
+		return false, nil
+	}
+	c.Set("client_id", client.Id)
+	return (subtle.ConstantTimeCompare([]byte(username), []byte(client.Id)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(password), []byte(client.Secret)) == 1), nil
 }
 
 // OIDC Token Endpoint is described in:
@@ -89,10 +89,10 @@ func InitServer(store schema.Store, config domain.Configuration) *echo.Echo {
 // Reference to the OAuth 2 spec:
 // https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 // Error handling as per https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
-func token(config domain.Configuration, store schema.Store, c echo.Context) error {
+func (controller *Controller) token(c echo.Context) error {
 	clientId := c.Get("client_id").(string)
 	// Validate that the client exists
-	client, clientExists := config.RegisteredClients[clientId]
+	client, clientExists := controller.config.RegisteredClients[clientId]
 	if !clientExists {
 		return sendOauthAccessTokenError(c, "invalid_client")
 	}
@@ -109,7 +109,7 @@ func token(config domain.Configuration, store schema.Store, c echo.Context) erro
 	code := c.FormValue("code")
 
 	// validate that the code exists
-	existingCode, err := store.FindCode(code)
+	existingCode, err := controller.store.FindCode(code)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -118,7 +118,7 @@ func token(config domain.Configuration, store schema.Store, c echo.Context) erro
 	}
 
 	// Code was used once, delete it
-	err = store.DeleteCode(code)
+	err = controller.store.DeleteCode(code)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -138,7 +138,7 @@ func token(config domain.Configuration, store schema.Store, c echo.Context) erro
 
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
-	idToken, err := generateIdToken(config.JwtConfig, clientId, client.Secret, existingCode.UserId)
+	idToken, err := generateIdToken(controller.config.JwtConfig, clientId, client.Secret, existingCode.UserId)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -165,7 +165,7 @@ func sendOauthAccessTokenError(c echo.Context, s string) error {
 }
 
 // No support for "nonce", "display", "prompt", "max_age", "ui_locales", "id_token_hint", "login_hint", "acr_values" yet
-func authorize(clientRegistry map[domain.ClientId]domain.Client, c echo.Context) error {
+func (controller *Controller) authorize(c echo.Context) error {
 	authReqScopes := strings.Split(getParam(c, "scope"), " ")
 	authReqResponseType := getParam(c, "response_type")
 	authReqClientId := getParam(c, "client_id")
@@ -182,7 +182,7 @@ func authorize(clientRegistry map[domain.ClientId]domain.Client, c echo.Context)
 	}
 	// Validate the client and redirect URI as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 and respond if an error
 	// Validate that the client exists
-	client, clientExists := clientRegistry[authReqClientId]
+	client, clientExists := controller.config.RegisteredClients[authReqClientId]
 	if !clientExists {
 		return c.String(http.StatusBadRequest, "Client does not exist")
 	}
@@ -219,7 +219,7 @@ type LoginPage struct {
 // interpreted as returning a 302 redirect with an error code in the query string for all these errors
 // But since this treat a potential malicious client as a real client, this seems unwise? Or is it better
 // to return an OAuth error so the implementor of a buggy client can see what's wrong?
-func login(clientRegistry map[domain.ClientId]domain.Client, store schema.Store, c echo.Context) error {
+func (controller *Controller) login(c echo.Context) error {
 	clientId := c.FormValue("clientid")
 	redirectUri := c.FormValue("redirecturi")
 	fullRedirectUri, err := url.Parse(redirectUri)
@@ -227,7 +227,7 @@ func login(clientRegistry map[domain.ClientId]domain.Client, store schema.Store,
 		return c.String(http.StatusBadRequest, "Invalid redirect URI")
 	}
 	state := c.FormValue("state")
-	client, clientExists := clientRegistry[clientId]
+	client, clientExists := controller.config.RegisteredClients[clientId]
 	if !clientExists {
 		return c.String(http.StatusBadRequest, "Client does not exist")
 	}
@@ -239,18 +239,24 @@ func login(clientRegistry map[domain.ClientId]domain.Client, store schema.Store,
 	password := c.FormValue("password")
 
 	// find the user and validate password
-	user, err := store.FindUser(username)
+	user, err := controller.store.FindUser(username)
 	if err != nil {
 		return sendInternalError(c, fullRedirectUri, state)
 	}
 	if crypto.CheckPasswordHash(password, user.Password) {
 		// See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
-		code, err := generateCode(store, clientId, redirectUri, user.UserId)
+
+		// Generate a code
+		// See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
+		// See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
+		uuid := uuid.New().String()
+		err := controller.store.SaveCode(schema.Code{Code: uuid, UserId: user.UserId, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
 		if err != nil {
 			return sendInternalError(c, fullRedirectUri, state)
 		}
+
 		query := fullRedirectUri.Query()
-		query.Add("code", code)
+		query.Add("code", uuid)
 		query.Add("state", state)
 		fullRedirectUri.RawQuery = query.Encode()
 		return c.Redirect(http.StatusFound, fullRedirectUri.String())
@@ -273,15 +279,6 @@ func sendOauthError(c echo.Context, redirectUri *url.URL, errorCode string, desc
 	}
 	redirectUri.RawQuery = query.Encode()
 	return c.Redirect(http.StatusFound, redirectUri.String())
-}
-
-// See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
-// See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
-// See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
-func generateCode(store schema.Store, clientId, redirectUri, externalUserId string) (string, error) {
-	uuid := uuid.New().String()
-	err := store.SaveCode(schema.Code{Code: uuid, UserId: externalUserId, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
-	return uuid, err
 }
 
 type Template struct {
