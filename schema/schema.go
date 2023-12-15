@@ -145,3 +145,7 @@ func (store *Store) FindUser(username string) (*User, error) {
 	}
 	return nil, nil
 }
+
+func (store *Store) Close() error {
+	return store.db.Close()
+}

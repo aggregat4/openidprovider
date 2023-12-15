@@ -33,7 +33,8 @@ var serverConfig = domain.Configuration{
 }
 
 func TestAuthorizeWithoutParameters(t *testing.T) {
-	echoServer := waitForServer()
+	echoServer, controller := waitForServer()
+	defer controller.Store.Close()
 	res, err := http.Get("http://localhost:1323/authorize")
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +48,8 @@ func TestAuthorizeWithoutParameters(t *testing.T) {
 // TODO: continue here: try to implement an echo like test as on https://echo.labstack.com/docs/testing
 
 func TestAuthorize(t *testing.T) {
-	echoServer := waitForServer()
+	echoServer, controller := waitForServer()
+	defer controller.Store.Close()
 	res, err := http.Get("http://localhost:1323/authorize?client_id=test&response_type=code&redirect_uri=http://localhost:8080")
 	if err != nil {
 		t.Fatal(err)
@@ -58,18 +60,19 @@ func TestAuthorize(t *testing.T) {
 	echoServer.Close()
 }
 
-func waitForServer() *echo.Echo {
+func waitForServer() (*echo.Echo, server.Controller) {
 	var store schema.Store
 	err := store.InitAndVerifyDb(schema.CreateInMemoryDbUrl())
 	if err != nil {
 		panic(err)
 	}
-	echoServer := server.InitServer(server.Controller{&store, serverConfig})
+	controller := server.Controller{&store, serverConfig}
+	echoServer := server.InitServer(controller)
 	go func() {
 		echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
 	}()
 	time.Sleep(1 * time.Second) // massive hack since there appears to be no way to know when the server is ready
-	return echoServer
+	return echoServer, controller
 }
 
 func readBody(res *http.Response) string {

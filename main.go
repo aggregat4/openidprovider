@@ -34,6 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error initializing database: %s", err)
 	}
+	defer store.Close()
 
 	if initdbPassword != "" && initdbUsername != "" {
 		hashedPassword, err := crypto.HashPassword(initdbPassword)
