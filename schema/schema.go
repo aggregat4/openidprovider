@@ -51,13 +51,17 @@ type Code struct {
 	Created     int64
 }
 
-func createDbUrl(dbName string) string {
+func CreateDbUrl(dbName string) string {
 	return fmt.Sprintf("file:%s.sqlite?_foreign_keys=on", dbName)
 }
 
-func (store *Store) InitAndVerifyDb(dbName string) error {
+func CreateInMemoryDbUrl() string {
+	return CreateDbUrl(":memory:?_foreign_keys=on")
+}
+
+func (store *Store) InitAndVerifyDb(dbUrl string) error {
 	var err error
-	store.db, err = sql.Open("sqlite3", createDbUrl(dbName))
+	store.db, err = sql.Open("sqlite3", dbUrl)
 	if err != nil {
 		return err
 	}

@@ -29,12 +29,13 @@ func main() {
 	flag.StringVar(&initdbUsername, "initdb-username", "", "Initializes the database with a user with this username")
 	flag.Parse()
 
+	var store schema.Store
+	err := store.InitAndVerifyDb(schema.CreateDbUrl(dbName))
+	if err != nil {
+		log.Fatalf("Error initializing database: %s", err)
+	}
+
 	if initdbPassword != "" && initdbUsername != "" {
-		var store schema.Store
-		err := store.InitAndVerifyDb(dbName)
-		if err != nil {
-			log.Fatalf("Error initializing database: %s", err)
-		}
 		hashedPassword, err := crypto.HashPassword(initdbPassword)
 		if err != nil {
 			log.Fatalf("Error hashing password: %s", err)
@@ -48,8 +49,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("error loading .env file: %s", err)
 		}
-
-		server.RunServer(dbName, readConfig())
+		server.RunServer(server.Controller{Store: &store, Config: readConfig()})
 	}
 }
 

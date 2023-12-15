@@ -33,7 +33,6 @@ var serverConfig = domain.Configuration{
 }
 
 func TestAuthorizeWithoutParameters(t *testing.T) {
-	// TODO: continue here: try to implement an echo like test as on https://echo.labstack.com/docs/testing
 	echoServer := waitForServer()
 	res, err := http.Get("http://localhost:1323/authorize")
 	if err != nil {
@@ -45,13 +44,27 @@ func TestAuthorizeWithoutParameters(t *testing.T) {
 	echoServer.Close()
 }
 
+// TODO: continue here: try to implement an echo like test as on https://echo.labstack.com/docs/testing
+
+func TestAuthorize(t *testing.T) {
+	echoServer := waitForServer()
+	res, err := http.Get("http://localhost:1323/authorize?client_id=test&response_type=code&redirect_uri=http://localhost:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 200, res.StatusCode)
+	// t.Log(res.StatusCode)
+	// t.Log(readBody(res))
+	echoServer.Close()
+}
+
 func waitForServer() *echo.Echo {
 	var store schema.Store
 	err := store.InitAndVerifyDb("test")
 	if err != nil {
 		panic(err)
 	}
-	echoServer := server.InitServer(store, serverConfig)
+	echoServer := server.InitServer(server.Controller{&store, serverConfig})
 	go func() {
 		echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
 	}()

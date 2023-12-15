@@ -24,26 +24,21 @@ import (
 var viewTemplates embed.FS
 
 type Controller struct {
-	store  *schema.Store
-	config domain.Configuration
+	Store  *schema.Store
+	Config domain.Configuration
 }
 
-func RunServer(dbName string, config domain.Configuration) {
-	var store schema.Store
-	err := store.InitAndVerifyDb(dbName)
-	if err != nil {
-		panic(err)
-	}
-	e := InitServer(Controller{&store, config})
-	e.Logger.Fatal(e.Start(":" + strconv.Itoa(config.ServerPort)))
+func RunServer(controller Controller) {
+	e := InitServer(controller)
+	e.Logger.Fatal(e.Start(":" + strconv.Itoa(controller.Config.ServerPort)))
 	// NO MORE CODE HERE, IT WILL NOT BE EXECUTED
 }
 
 func InitServer(controller Controller) *echo.Echo {
 	e := echo.New()
 	// Set server timeouts based on advice from https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/#1687428081
-	e.Server.ReadTimeout = time.Duration(controller.config.ServerReadTimeoutSeconds) * time.Second
-	e.Server.WriteTimeout = time.Duration(controller.config.ServerWriteTimeoutSeconds) * time.Second
+	e.Server.ReadTimeout = time.Duration(controller.Config.ServerReadTimeoutSeconds) * time.Second
+	e.Server.WriteTimeout = time.Duration(controller.Config.ServerWriteTimeoutSeconds) * time.Second
 
 	t := &Template{
 		templates: template.Must(template.New("").ParseFS(viewTemplates, "public/views/*.html")),
@@ -72,7 +67,7 @@ func InitServer(controller Controller) *echo.Echo {
 }
 
 func (controller *Controller) basicAuthValidator(username, password string, c echo.Context) (bool, error) {
-	client, clientExists := controller.config.RegisteredClients[username]
+	client, clientExists := controller.Config.RegisteredClients[username]
 	if !clientExists {
 		// make sure we nevertheless compare the username and password to make timing attacks harder
 		subtle.ConstantTimeCompare([]byte(username), []byte("this is not a valid client id"))
@@ -92,7 +87,7 @@ func (controller *Controller) basicAuthValidator(username, password string, c ec
 func (controller *Controller) token(c echo.Context) error {
 	clientId := c.Get("client_id").(string)
 	// Validate that the client exists
-	client, clientExists := controller.config.RegisteredClients[clientId]
+	client, clientExists := controller.Config.RegisteredClients[clientId]
 	if !clientExists {
 		return sendOauthAccessTokenError(c, "invalid_client")
 	}
@@ -109,7 +104,7 @@ func (controller *Controller) token(c echo.Context) error {
 	code := c.FormValue("code")
 
 	// validate that the code exists
-	existingCode, err := controller.store.FindCode(code)
+	existingCode, err := controller.Store.FindCode(code)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -118,7 +113,7 @@ func (controller *Controller) token(c echo.Context) error {
 	}
 
 	// Code was used once, delete it
-	err = controller.store.DeleteCode(code)
+	err = controller.Store.DeleteCode(code)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -138,7 +133,7 @@ func (controller *Controller) token(c echo.Context) error {
 
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
-	idToken, err := generateIdToken(controller.config.JwtConfig, clientId, client.Secret, existingCode.UserId)
+	idToken, err := generateIdToken(controller.Config.JwtConfig, clientId, client.Secret, existingCode.UserId)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -182,7 +177,7 @@ func (controller *Controller) authorize(c echo.Context) error {
 	}
 	// Validate the client and redirect URI as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 and respond if an error
 	// Validate that the client exists
-	client, clientExists := controller.config.RegisteredClients[authReqClientId]
+	client, clientExists := controller.Config.RegisteredClients[authReqClientId]
 	if !clientExists {
 		return c.String(http.StatusBadRequest, "Client does not exist")
 	}
@@ -227,7 +222,7 @@ func (controller *Controller) login(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid redirect URI")
 	}
 	state := c.FormValue("state")
-	client, clientExists := controller.config.RegisteredClients[clientId]
+	client, clientExists := controller.Config.RegisteredClients[clientId]
 	if !clientExists {
 		return c.String(http.StatusBadRequest, "Client does not exist")
 	}
@@ -239,7 +234,7 @@ func (controller *Controller) login(c echo.Context) error {
 	password := c.FormValue("password")
 
 	// find the user and validate password
-	user, err := controller.store.FindUser(username)
+	user, err := controller.Store.FindUser(username)
 	if err != nil {
 		return sendInternalError(c, fullRedirectUri, state)
 	}
@@ -250,7 +245,7 @@ func (controller *Controller) login(c echo.Context) error {
 		// See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
 		// See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
 		uuid := uuid.New().String()
-		err := controller.store.SaveCode(schema.Code{Code: uuid, UserId: user.UserId, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
+		err := controller.Store.SaveCode(schema.Code{Code: uuid, UserId: user.UserId, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
 		if err != nil {
 			return sendInternalError(c, fullRedirectUri, state)
 		}
