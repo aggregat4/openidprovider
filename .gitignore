@@ -3,3 +3,5 @@ openidprovider
 tmp/
 .vscode/
 .env
+*sqlite-shm
+*sqlite-wal
