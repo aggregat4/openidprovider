@@ -11,6 +11,7 @@ var migrations = []Migration{
 		`
 		-- Enable WAL mode on the database to allow for concurrent reads and writes
 		PRAGMA journal_mode=WAL;
+		PRAGMA foreign_keys = ON;
 
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -52,11 +53,11 @@ type Code struct {
 }
 
 func CreateDbUrl(dbName string) string {
-	return fmt.Sprintf("file:%s.sqlite?_foreign_keys=on", dbName)
+	return fmt.Sprintf("file:%s.sqlite", dbName)
 }
 
 func CreateInMemoryDbUrl() string {
-	return CreateDbUrl(":memory:?_foreign_keys=on")
+	return CreateDbUrl(":memory:")
 }
 
 func (store *Store) InitAndVerifyDb(dbUrl string) error {

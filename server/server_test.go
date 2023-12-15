@@ -60,7 +60,7 @@ func TestAuthorize(t *testing.T) {
 
 func waitForServer() *echo.Echo {
 	var store schema.Store
-	err := store.InitAndVerifyDb("test")
+	err := store.InitAndVerifyDb(schema.CreateInMemoryDbUrl())
 	if err != nil {
 		panic(err)
 	}
