@@ -16,9 +16,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/labstack/echo"
-	"github.com/labstack/echo/middleware"
+	"github.com/gorilla/sessions"
+	"github.com/labstack/echo-contrib/session"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
+
+// var logger = log.Default()
 
 //go:embed public/views/*.html
 var viewTemplates embed.FS
@@ -47,7 +51,11 @@ func InitServer(controller Controller) *echo.Echo {
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
+	// Added session middleware just so we can have persistence for CSRF tokens
+	e.Use(session.Middleware(sessions.NewCookieStore([]byte(uuid.New().String()))))
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{Level: 5}))
+	// TODO: write test to verify whether we need to restrict the CSRF chek to POST on the login page?
+	// Otherwise the alternative POST on authorize/ will not work
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{TokenLookup: "form:csrf_token"}))
 	e.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
 		// we only require basic auth for the token endpoint
