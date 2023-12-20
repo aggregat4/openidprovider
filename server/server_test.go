@@ -44,8 +44,6 @@ func TestAuthorizeWithoutParameters(t *testing.T) {
 	echoServer.Close()
 }
 
-// TODO: continue here: try to implement an echo like test as on https://echo.labstack.com/docs/testing
-
 func TestAuthorize(t *testing.T) {
 	echoServer, controller := waitForServer()
 	defer controller.Store.Close()
