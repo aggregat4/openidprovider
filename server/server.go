@@ -57,11 +57,11 @@ func InitServer(controller Controller) *echo.Echo {
 		Validator: controller.basicAuthValidator,
 	}))
 
+	e.GET("/authorize", controller.authorize)
+	e.POST("/authorize", controller.authorize)
 	// We don't need to allow showing the login page directly, it will only be used as a response to an
 	// authorization request, so no GET on /login
 	e.POST("/login", controller.login)
-	e.GET("/authorize", controller.authorize)
-	e.POST("/authorize", controller.authorize)
 	e.POST("/token", controller.token)
 	return e
 }
