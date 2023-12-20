@@ -185,7 +185,8 @@ func (controller *Controller) authorize(c echo.Context) error {
 	if !contains(client.RedirectUris, authReqRedirectUri) {
 		return c.String(http.StatusBadRequest, "Redirect URI is not registered for client")
 	}
-	// all is well, show login page
+	// All is well, show login page
+	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.Render(http.StatusOK, "login", LoginPage{
 		CsrfToken:   c.Get("csrf").(string),
 		ClientId:    authReqClientId,

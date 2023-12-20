@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo"
 	_ "github.com/mattn/go-sqlite3"
 	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
 )
 
 var serverConfig = domain.Configuration{
@@ -40,8 +41,6 @@ func TestAuthorizeWithoutParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Equal(t, 400, res.StatusCode)
-	// t.Log(res.StatusCode)
-	// t.Log(readBody(res))
 	echoServer.Close()
 }
 
@@ -50,13 +49,26 @@ func TestAuthorizeWithoutParameters(t *testing.T) {
 func TestAuthorize(t *testing.T) {
 	echoServer, controller := waitForServer()
 	defer controller.Store.Close()
-	res, err := http.Get("http://localhost:1323/authorize?client_id=test&response_type=code&redirect_uri=http://localhost:8080")
+	res, err := http.Get("http://localhost:1323/authorize?scope=openid&client_id=test&response_type=code&redirect_uri=http://localhost:8080&state=foobar")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assert.Equal(t, 200, res.StatusCode)
-	// t.Log(res.StatusCode)
-	// t.Log(readBody(res))
+	assert.Equal(t, "text/html; charset=UTF-8", res.Header.Get("Content-Type"))
+	assert.Equal(t, "no-store", res.Header.Get("Cache-Control"))
+	// check whether our state shows up in the response
+	assert.Assert(t, is.Contains(readBody(res), "value=\"foobar\""))
+	echoServer.Close()
+}
+
+func TestLoginWithoutParameters(t *testing.T) {
+	echoServer, controller := waitForServer()
+	defer controller.Store.Close()
+	res, err := http.Get("http://localhost:1323/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 405, res.StatusCode)
 	echoServer.Close()
 }
 
