@@ -56,7 +56,12 @@ func InitServer(controller Controller) *echo.Echo {
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{Level: 5}))
 	// TODO: write test to verify whether we need to restrict the CSRF chek to POST on the login page?
 	// Otherwise the alternative POST on authorize/ will not work
-	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{TokenLookup: "form:csrf_token"}))
+	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
+		TokenLookup: "form:csrf_token",
+		Skipper: func(c echo.Context) bool {
+			return c.Path() != "/login" && c.Path() != "/authorize"
+		},
+	}))
 	e.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
 		// we only require basic auth for the token endpoint
 		Skipper: func(c echo.Context) bool {
@@ -141,7 +146,8 @@ func (controller *Controller) token(c echo.Context) error {
 
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
-	idToken, err := generateIdToken(controller.Config.JwtConfig, clientId, client.Secret, existingCode.UserId)
+	c.Response().Header().Set("Cache-Control", "no-store")
+	idToken, err := generateIdToken(controller.Config.JwtConfig, clientId, client.Secret, existingCode.UserName)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -150,11 +156,11 @@ func (controller *Controller) token(c echo.Context) error {
 }
 
 // See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
-func generateIdToken(jwtConfig domain.JwtConfiguration, clientId string, clientSecret string, userId string) (string, error) {
+func generateIdToken(jwtConfig domain.JwtConfiguration, clientId string, clientSecret string, userName string) (string, error) {
 	key := ([]byte(clientSecret))
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"iss": jwtConfig.Issuer,
-		"sub": userId,
+		"sub": userName,
 		"aud": clientId,
 		"exp": time.Now().Add(time.Minute * time.Duration(jwtConfig.IdTokenValidityMinutes)).Unix(),
 		"iat": time.Now().Unix(),
@@ -247,6 +253,10 @@ func (controller *Controller) login(c echo.Context) error {
 	if err != nil {
 		return sendInternalError(c, fullRedirectUri, state)
 	}
+	if user == nil {
+		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
+		return sendOauthError(c, fullRedirectUri, "access_denied", "Invalid username or password", state)
+	}
 	if crypto.CheckPasswordHash(password, user.Password) {
 		// See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
 
@@ -254,7 +264,7 @@ func (controller *Controller) login(c echo.Context) error {
 		// See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
 		// See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
 		uuid := uuid.New().String()
-		err := controller.Store.SaveCode(schema.Code{Code: uuid, UserId: user.UserId, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
+		err := controller.Store.SaveCode(schema.Code{Code: uuid, UserName: user.Username, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
 		if err != nil {
 			return sendInternalError(c, fullRedirectUri, state)
 		}
