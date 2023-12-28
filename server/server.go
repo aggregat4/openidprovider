@@ -27,6 +27,8 @@ import (
 //go:embed public/views/*.html
 var viewTemplates embed.FS
 
+const CONTENT_TYPE_JSON = "application/json;charset=UTF-8"
+
 type Controller struct {
 	Store  *schema.Store
 	Config domain.Configuration
@@ -79,6 +81,9 @@ func InitServer(controller Controller) *echo.Echo {
 	return e
 }
 
+// basicAuthValidator validates a client ID and client secret provided via
+// HTTP Basic Auth. It sets the client ID on the context if valid.
+// It use subtle.ConstantTimeCompare to prevent timing attacks.
 func (controller *Controller) basicAuthValidator(username, password string, c echo.Context) (bool, error) {
 	client, clientExists := controller.Config.RegisteredClients[username]
 	if !clientExists {
@@ -145,7 +150,7 @@ func (controller *Controller) token(c echo.Context) error {
 	// }
 
 	// Respond with the access token
-	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
+	c.Response().Header().Set("Content-Type", CONTENT_TYPE_JSON)
 	c.Response().Header().Set("Cache-Control", "no-store")
 	idToken, err := generateIdToken(controller.Config.JwtConfig, clientId, client.Secret, existingCode.UserName)
 	if err != nil {
@@ -169,7 +174,7 @@ func generateIdToken(jwtConfig domain.JwtConfiguration, clientId string, clientS
 }
 
 func sendOauthAccessTokenError(c echo.Context, s string) error {
-	c.Response().Header().Set("Content-Type", "application/json;charset=UTF-8")
+	c.Response().Header().Set("Content-Type", CONTENT_TYPE_JSON)
 	return c.String(http.StatusBadRequest, "{\"error\":\""+s+"\"}")
 }
 
@@ -227,7 +232,7 @@ type LoginPage struct {
 // validation.
 // This is unclear in the spec as https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 could be
 // interpreted as returning a 302 redirect with an error code in the query string for all these errors
-// But since this treat a potential malicious client as a real client, this seems unwise? Or is it better
+// But since this treats a potential malicious client as a real client, this seems unwise? Or is it better
 // to return an OAuth error so the implementor of a buggy client can see what's wrong?
 func (controller *Controller) login(c echo.Context) error {
 	clientId := c.FormValue("clientid")

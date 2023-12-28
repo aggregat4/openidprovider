@@ -148,15 +148,7 @@ func TestLoginWithWrongPassword(t *testing.T) {
 	echoServer, controller := waitForServer()
 	defer echoServer.Close()
 	defer controller.Store.Close()
-	// Create a test user so we can log in
-	hashedPassword, err := crypto.HashPassword(TEST_PASSWORD)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.CreateUser(TEST_USERNAME, hashedPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createTestUser(t, controller)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, "WRONGPASSWORD")
 	// assert that we redirected to the client with a code
@@ -169,15 +161,7 @@ func TestLoginWithExistingUser(t *testing.T) {
 	echoServer, controller := waitForServer()
 	defer echoServer.Close()
 	defer controller.Store.Close()
-	// Create a test user so we can log in
-	hashedPassword, err := crypto.HashPassword(TEST_PASSWORD)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.CreateUser(TEST_USERNAME, hashedPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createTestUser(t, controller)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TEST_PASSWORD)
 	// assert that we redirected to the client with a code
@@ -193,18 +177,10 @@ func TestLoginAndFetchToken(t *testing.T) {
 	echoServer, controller := waitForServer()
 	defer echoServer.Close()
 	defer controller.Store.Close()
-	// Create a test user so we can log in
-	hashedPassword, err := crypto.HashPassword(TEST_PASSWORD)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.CreateUser(TEST_USERNAME, hashedPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createTestUser(t, controller)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TEST_PASSWORD)
-	// assert that we redirected to the client with a code
+	// assert that we redirected to the client with a code and no error
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
 	assert.Contains(t, locationHeader, TEST_REDIRECT_URI)
@@ -243,6 +219,17 @@ func TestLoginAndFetchToken(t *testing.T) {
 	// assert that we got an id token
 	body := readBody(res)
 	assert.Contains(t, body, "id_token")
+}
+
+func createTestUser(t *testing.T, controller server.Controller) {
+	hashedPassword, err := crypto.HashPassword(TEST_PASSWORD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.CreateUser(TEST_USERNAME, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 // construct a test HTTP client with cookie support so we can transport the CSRF token
