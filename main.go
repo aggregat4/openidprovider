@@ -30,7 +30,7 @@ func main() {
 	flag.Parse()
 
 	var store schema.Store
-	err := store.InitAndVerifyDb(schema.CreateDbUrl(dbName))
+	err := store.InitAndVerifyDb(schema.CreateFileDbUrl(dbName))
 	if err != nil {
 		log.Fatalf("Error initializing database: %s", err)
 	}

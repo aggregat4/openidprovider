@@ -51,7 +51,7 @@ type Code struct {
 	Created     int64
 }
 
-func CreateDbUrl(dbName string) string {
+func CreateFileDbUrl(dbName string) string {
 	return fmt.Sprintf("file:%s.sqlite", dbName)
 }
 
