@@ -152,7 +152,7 @@ func (controller *Controller) token(c echo.Context) error {
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", CONTENT_TYPE_JSON)
 	c.Response().Header().Set("Cache-Control", "no-store")
-	idToken, err := generateIdToken(controller.Config.JwtConfig, clientId, client.Secret, existingCode.UserName)
+	idToken, err := GenerateIdToken(controller.Config.JwtConfig, clientId, client.Secret, existingCode.UserName)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -161,7 +161,7 @@ func (controller *Controller) token(c echo.Context) error {
 }
 
 // See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
-func generateIdToken(jwtConfig domain.JwtConfiguration, clientId string, clientSecret string, userName string) (string, error) {
+func GenerateIdToken(jwtConfig domain.JwtConfiguration, clientId string, clientSecret string, userName string) (string, error) {
 	key := ([]byte(clientSecret))
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"iss": jwtConfig.Issuer,

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	_ "github.com/mattn/go-sqlite3"
 
@@ -219,6 +220,35 @@ func TestLoginAndFetchToken(t *testing.T) {
 	// assert that we got an id token
 	body := readBody(res)
 	assert.Contains(t, body, "id_token")
+}
+
+func TestGenerateValidIdToken(t *testing.T) {
+	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TEST_CLIENTID, TEST_SECRET, TEST_USERNAME)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, token)
+
+	claims, err := decodeIdTokenClaims(t, token, TEST_SECRET)
+	assert.NoError(t, err)
+	assert.Equal(t, serverConfig.JwtConfig.Issuer, claims["iss"])
+	assert.Equal(t, TEST_USERNAME, claims["sub"])
+	assert.Equal(t, TEST_CLIENTID, claims["aud"])
+	assert.WithinDuration(t, time.Now().Add(time.Minute*time.Duration(serverConfig.JwtConfig.IdTokenValidityMinutes)), time.Unix(int64(claims["exp"].(float64)), 0), time.Second)
+}
+
+func TestGenerateIdTokenWithWrongSecret(t *testing.T) {
+	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TEST_CLIENTID, "invalid", TEST_USERNAME)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, token)
+	_, err = decodeIdTokenClaims(t, token, TEST_SECRET)
+	assert.Error(t, err)
+}
+
+func decodeIdTokenClaims(t *testing.T, token string, secret string) (jwt.MapClaims, error) {
+	claims := jwt.MapClaims{}
+	_, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(secret), nil
+	})
+	return claims, err
 }
 
 func createTestUser(t *testing.T, controller server.Controller) {
