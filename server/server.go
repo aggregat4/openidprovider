@@ -117,7 +117,7 @@ func (controller *Controller) token(c echo.Context) error {
 	// we assume that basic auth has happened and the secret matches, proceed to verify the grant type and code
 	grantType := c.FormValue("grant_type")
 	if grantType != "authorization_code" {
-		sendOauthAccessTokenError(c, "unsupported_grant_type")
+		return sendOauthAccessTokenError(c, "unsupported_grant_type")
 	}
 	code := c.FormValue("code")
 
@@ -127,7 +127,7 @@ func (controller *Controller) token(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
 	if existingCode == nil {
-		sendOauthAccessTokenError(c, "invalid_grant")
+		return sendOauthAccessTokenError(c, "invalid_grant")
 	}
 
 	// Code was used once, delete it
@@ -138,7 +138,7 @@ func (controller *Controller) token(c echo.Context) error {
 
 	// Validate that the code is for the correct client and redirect URI
 	if existingCode.ClientId != clientId || existingCode.RedirectUri != redirectUri {
-		sendOauthAccessTokenError(c, "invalid_grant")
+		return sendOauthAccessTokenError(c, "invalid_grant")
 	}
 
 	// Finally, generate the access token
