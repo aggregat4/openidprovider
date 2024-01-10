@@ -6,10 +6,7 @@ import (
 	"aggregat4/openidprovider/schema"
 	"aggregat4/openidprovider/server"
 	"flag"
-	"fmt"
 	"log"
-	"os"
-	"strconv"
 
 	"github.com/joho/godotenv"
 	"github.com/kirsle/configdir"
@@ -24,7 +21,7 @@ func main() {
 	const dbName = "openidprovider"
 
 	var initdbPassword string
-	flag.StringVar(&initdbPassword, "initdb-pass", "", "Initializes the database with a user with this password, contents must be bcrypt encoded")
+	flag.StringVar(&initdbPassword, "initdb-password", "", "Initializes the database with a user with this password")
 	var initdbUsername string
 	flag.StringVar(&initdbUsername, "initdb-username", "", "Initializes the database with a user with this username")
 	flag.Parse()
@@ -121,32 +118,4 @@ func readConfig() domain.Configuration {
 		RegisteredClients:         registeredClients,
 		JwtConfig:                 jwtConfig,
 	}
-}
-
-func requireStringFromEnv(s string) string {
-	value := os.Getenv(s)
-	if value == "" {
-		panic(fmt.Errorf("env variable %s is required", s))
-	}
-	return value
-}
-
-func getIntFromEnv(key string, defaultValue int) int {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	intValue, err := strconv.Atoi(value)
-	if err != nil {
-		panic(fmt.Errorf("error parsing env variable %s: %s", key, err))
-	}
-	return intValue
-}
-
-func getStringFromEnv(key string, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	return value
 }
