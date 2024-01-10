@@ -1,4 +1,4 @@
-openidprovider
+bin/
 *.sqlite
 tmp/
 .vscode/
