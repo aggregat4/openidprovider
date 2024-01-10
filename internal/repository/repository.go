@@ -18,7 +18,7 @@ var mymigrations = []migrations.Migration{
 
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-			username TEXT NOT NULL,
+			username TEXT NOT NULL UNIQUE,
 			password TEXT NOT NULL,
 			last_updated INTEGER NOT NULL
 		);
@@ -28,7 +28,8 @@ var mymigrations = []migrations.Migration{
 			username TEXT NOT NULL,
 			client_id TEXT NOT NULL,
 			redirect_uri TEXT NOT NULL,
-			created INTEGER NOT NULL
+			created INTEGER NOT NULL,
+			FOREIGN KEY (username) REFERENCES users(username)
 		);
 		`,
 	},
