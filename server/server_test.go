@@ -295,7 +295,7 @@ func waitForServer() (*echo.Echo, server.Controller) {
 	controller := server.Controller{&store, serverConfig}
 	echoServer := server.InitServer(controller)
 	go func() {
-		echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
+		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
 	}()
 	time.Sleep(1 * time.Second) // massive hack since there appears to be no way to know when the server is ready
 	return echoServer, controller
