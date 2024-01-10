@@ -5,3 +5,4 @@ tmp/
 .env
 *sqlite-shm
 *sqlite-wal
+coverage.*
