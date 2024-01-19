@@ -6,7 +6,6 @@ import (
 	"aggregat4/openidprovider/internal/server"
 	"log"
 
-	"github.com/joho/godotenv"
 	"github.com/kirsle/configdir"
 	"github.com/knadh/koanf/parsers/json"
 	"github.com/knadh/koanf/providers/file"
@@ -25,10 +24,6 @@ func main() {
 	}
 	defer store.Close()
 
-	err = godotenv.Load()
-	if err != nil {
-		log.Fatalf("error loading .env file: %s", err)
-	}
 	server.RunServer(server.Controller{Store: &store, Config: readConfig()})
 }
 
