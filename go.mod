@@ -1,6 +1,6 @@
 module aggregat4/openidprovider
 
-go 1.21.4
+go 1.21.6
 
 require (
 	github.com/gorilla/sessions v1.2.2
