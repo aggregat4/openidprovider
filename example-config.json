@@ -1,0 +1,14 @@
+{
+	"serverport": 1301,
+	"registeredclients": [
+		{
+			"id": "testclient",
+			"secret": "foobar",
+			"redirecturis" : "http://localhost:1302/bookmarks"
+		}
+	],
+	"jwt": {
+		"issuer": "test",
+		"idtokenvalidityminutes": 5
+	}
+}

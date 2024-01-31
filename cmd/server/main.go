@@ -4,6 +4,8 @@ import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
+	"aggregat4/openidprovider/pkg/lang"
+	"flag"
 	"log"
 
 	"github.com/kirsle/configdir"
@@ -24,12 +26,17 @@ func main() {
 	}
 	defer store.Close()
 
-	server.RunServer(server.Controller{Store: &store, Config: readConfig()})
+	var configFileLocation string
+	flag.StringVar(&configFileLocation, "config", "", "The location of the configuration file if you do not want to default to the standard location")
+	flag.Parse()
+
+	defaultConfigLocation := configdir.LocalConfig("openidprovider") + "/openidprovider.json"
+	server.RunServer(server.Controller{Store: &store, Config: readConfig(lang.IfElse(configFileLocation == "", defaultConfigLocation, configFileLocation))})
 }
 
-func readConfig() domain.Configuration {
+func readConfig(configFileLocation string) domain.Configuration {
 	var k = koanf.New(".")
-	if err := k.Load(file.Provider(configdir.LocalConfig("openidprovider")+"/openidprovider.json"), json.Parser()); err != nil {
+	if err := k.Load(file.Provider(configFileLocation), json.Parser()); err != nil {
 		log.Fatalf("error loading config: %v", err)
 	}
 	serverReadTimeoutSeconds, ok := k.Get("serverreadtimeoutseconds").(int)
