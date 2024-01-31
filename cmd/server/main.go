@@ -39,27 +39,34 @@ func readConfig(configFileLocation string) domain.Configuration {
 	if err := k.Load(file.Provider(configFileLocation), json.Parser()); err != nil {
 		log.Fatalf("error loading config: %v", err)
 	}
-	serverReadTimeoutSeconds, ok := k.Get("serverreadtimeoutseconds").(int)
-	if !ok {
+	serverReadTimeoutSeconds := k.Int("serverreadtimeoutseconds")
+	if serverReadTimeoutSeconds == 0 {
 		serverReadTimeoutSeconds = 5
 	}
-	serverWriteTimeoutSeconds, ok := k.Get("serverwritetimeoutseconds").(int)
-	if !ok {
+	serverWriteTimeoutSeconds := k.Int("serverwritetimeoutseconds")
+	if serverWriteTimeoutSeconds == 0 {
 		serverWriteTimeoutSeconds = 10
 	}
-	serverPort, ok := k.Get("serverport").(int)
-	if !ok {
+	serverPort := k.Int("serverport")
+	if serverPort == 0 {
 		serverPort = 1323
 	}
 
 	configuredClients := k.Get("registeredclients")
-	clients, ok := configuredClients.([]map[string]interface{})
+	// NOTE: I tried casting to `[]map[string]interface{}` but that did not work, even though that is the type
+	// Apparently go does not have that information yet. Instead this is a generic object here and later in the
+	// loop we cast the objects to a `map[string]interface{}`
+	clients, ok := configuredClients.([]interface{})
 	if !ok {
 		log.Fatalf("registeredclients is not an array of objects")
 	}
 	registeredClients := make(map[domain.ClientId]domain.Client)
 	for _, client := range clients {
-		clientId, ok := client["id"].(string)
+		client, ok := client.(map[string]interface{})
+		if !ok {
+			log.Fatalf("client is not an object")
+		}
+		clientId := client["id"].(string)
 		if !ok {
 			log.Fatalf("client id is not a string")
 		}
@@ -67,38 +74,35 @@ func readConfig(configFileLocation string) domain.Configuration {
 		if !ok {
 			log.Fatalf("client secret is not a string")
 		}
-		redirectUris, ok := client["redirecturis"].([]string)
+		// NOTE: again we can not cast to `[]string` yet, we do that later for each individual redirect uri
+		redirectUris, ok := client["redirecturis"].([]interface{})
 		if !ok {
-			log.Fatalf("redirect uris is not an array of strings")
+			log.Fatalf("redirect uris is not an array")
+		}
+		redirectUrisString := make([]string, len(redirectUris))
+		for i, uri := range redirectUris {
+			uri, ok := uri.(string)
+			if !ok {
+				log.Fatalf("redirect uri is not a string")
+			}
+			redirectUrisString[i] = uri
 		}
 		registeredClients[domain.ClientId(clientId)] = domain.Client{
 			Id:           domain.ClientId(clientId),
-			RedirectUris: redirectUris,
+			RedirectUris: redirectUrisString,
 			Secret:       clientSecret,
 		}
 	}
-	configuredJwt := k.Get("jwt")
-	jwt, ok := configuredJwt.(map[string]interface{})
-	if !ok {
-		log.Fatalf("jwt is not an object")
-	}
-	issuer, ok := jwt["issuer"].(string)
-	if !ok {
-		log.Fatalf("issuer is not a string")
-	}
-	idTokenValidityMinutes, ok := jwt["idtokenvalidityminutes"].(float64)
-	if !ok {
-		log.Fatalf("idtokenvalidityminutes is not a number")
-	}
-	jwtConfig := domain.JwtConfiguration{
-		Issuer:                 issuer,
-		IdTokenValidityMinutes: int(idTokenValidityMinutes),
-	}
+	issuer := k.MustString("jwt.issuer")
+	idTokenValidityMinutes := k.MustInt("jwt.idtokenvalidityminutes")
 	return domain.Configuration{
 		ServerReadTimeoutSeconds:  serverReadTimeoutSeconds,
 		ServerWriteTimeoutSeconds: serverWriteTimeoutSeconds,
 		ServerPort:                serverPort,
 		RegisteredClients:         registeredClients,
-		JwtConfig:                 jwtConfig,
+		JwtConfig: domain.JwtConfiguration{
+			Issuer:                 issuer,
+			IdTokenValidityMinutes: int(idTokenValidityMinutes),
+		},
 	}
 }

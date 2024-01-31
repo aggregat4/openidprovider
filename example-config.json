@@ -4,7 +4,7 @@
 		{
 			"id": "testclient",
 			"secret": "foobar",
-			"redirecturis" : "http://localhost:1302/bookmarks"
+			"redirecturis" : ["http://localhost:1302/bookmarks"]
 		}
 	],
 	"jwt": {
