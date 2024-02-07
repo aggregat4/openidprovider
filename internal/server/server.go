@@ -6,6 +6,7 @@ import (
 	"aggregat4/openidprovider/pkg/crypto"
 	"crypto/subtle"
 	"embed"
+	"encoding/json"
 	"html/template"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/sessions"
@@ -72,6 +74,9 @@ func InitServer(controller Controller) *echo.Echo {
 		Validator: controller.basicAuthValidator,
 	}))
 
+	e.GET("/.well-known/openid-configuration", controller.openIdConfiguration)
+	e.GET("/.well-known/jwks.json", controller.jwks)
+
 	e.GET("/authorize", controller.authorize)
 	e.POST("/authorize", controller.authorize)
 	// We don't need to allow showing the login page directly, it will only be used as a response to an
@@ -79,6 +84,41 @@ func InitServer(controller Controller) *echo.Echo {
 	e.POST("/login", controller.login)
 	e.POST("/token", controller.token)
 	return e
+}
+
+func (controller *Controller) jwks(c echo.Context) error {
+	jwks := jose.JSONWebKeySet{
+		Keys: make([]jose.JSONWebKey, 1),
+	}
+	jwks.Keys[0] = jose.JSONWebKey{
+		Key:       controller.Config.JwtConfig.PublicKey,
+		KeyID:     "id-token-key",
+		Use:       "sig",
+		Algorithm: "RS256",
+	}
+	jwksBytes, err := json.MarshalIndent(jwks, "", "  ")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create JWKS document")
+	} else {
+		c.Response().Header().Set("Content-Type", "application/json")
+		return c.String(http.StatusOK, string(jwksBytes))
+	}
+}
+
+// openIdConfiguration returns the OpenID Connect configuration for this
+// server. See https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationResponse
+func (controller *Controller) openIdConfiguration(c echo.Context) error {
+	c.Response().Header().Set("Content-Type", CONTENT_TYPE_JSON)
+	return c.JSON(http.StatusOK, domain.OpenIdConfiguration{
+		Issuer:                controller.Config.JwtConfig.Issuer,
+		AuthorizationEndpoint: controller.Config.BaseUrl + "/authorize",
+		TokenEndpoint:         controller.Config.BaseUrl + "/token",
+		// UserInfoEndpoint: controller.Config.BaseUrl + "/userinfo",
+		JwksUri:                          controller.Config.BaseUrl + "/.well-known/jwks.json",
+		ResponseTypesSupported:           []string{"code", "id_token"},
+		SubjectTypesSupported:            []string{"public"},
+		IdTokenSigningAlgValuesSupported: []string{"RS256"},
+	})
 }
 
 // basicAuthValidator validates a client ID and client secret provided via
@@ -94,7 +134,7 @@ func (controller *Controller) basicAuthValidator(username, password string, c ec
 	}
 	c.Set("client_id", client.Id)
 	return (subtle.ConstantTimeCompare([]byte(username), []byte(client.Id)) == 1 &&
-		subtle.ConstantTimeCompare([]byte(password), []byte(client.Secret)) == 1), nil
+		subtle.ConstantTimeCompare([]byte(password), []byte(client.BasicAuthSecret)) == 1), nil
 }
 
 // OIDC Token Endpoint is described in:
@@ -152,7 +192,7 @@ func (controller *Controller) token(c echo.Context) error {
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", CONTENT_TYPE_JSON)
 	c.Response().Header().Set("Cache-Control", "no-store")
-	idToken, err := GenerateIdToken(controller.Config.JwtConfig, clientId, client.Secret, existingCode.UserName)
+	idToken, err := GenerateIdToken(controller.Config.JwtConfig, clientId, existingCode.UserName)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -161,16 +201,15 @@ func (controller *Controller) token(c echo.Context) error {
 }
 
 // See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
-func GenerateIdToken(jwtConfig domain.JwtConfiguration, clientId string, clientSecret string, userName string) (string, error) {
-	key := ([]byte(clientSecret))
-	t := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+func GenerateIdToken(jwtConfig domain.JwtConfiguration, clientId string, userName string) (string, error) {
+	t := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 		"iss": jwtConfig.Issuer,
 		"sub": userName,
 		"aud": clientId,
 		"exp": time.Now().Add(time.Minute * time.Duration(jwtConfig.IdTokenValidityMinutes)).Unix(),
 		"iat": time.Now().Unix(),
 	})
-	return t.SignedString(key)
+	return t.SignedString(jwtConfig.PrivateKey)
 }
 
 func sendOauthAccessTokenError(c echo.Context, s string) error {

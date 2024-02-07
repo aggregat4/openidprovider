@@ -39,9 +39,9 @@ var serverConfig = domain.Configuration{
 	ServerPort:                1323,
 	RegisteredClients: map[domain.ClientId]domain.Client{
 		TEST_CLIENTID: {
-			Id:           TEST_CLIENTID,
-			RedirectUris: []string{TEST_REDIRECT_URI},
-			Secret:       TEST_SECRET,
+			Id:              TEST_CLIENTID,
+			RedirectUris:    []string{TEST_REDIRECT_URI},
+			BasicAuthSecret: TEST_SECRET,
 		},
 	},
 	JwtConfig: domain.JwtConfiguration{
@@ -223,7 +223,7 @@ func TestLoginAndFetchToken(t *testing.T) {
 }
 
 func TestGenerateValidIdToken(t *testing.T) {
-	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TEST_CLIENTID, TEST_SECRET, TEST_USERNAME)
+	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TEST_CLIENTID, TEST_USERNAME)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -236,7 +236,7 @@ func TestGenerateValidIdToken(t *testing.T) {
 }
 
 func TestGenerateIdTokenWithWrongSecret(t *testing.T) {
-	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TEST_CLIENTID, "invalid", TEST_USERNAME)
+	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TEST_CLIENTID, TEST_USERNAME)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 	_, err = decodeIdTokenClaims(t, token, TEST_SECRET)

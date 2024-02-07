@@ -7,7 +7,9 @@ import (
 	"aggregat4/openidprovider/pkg/lang"
 	"flag"
 	"log"
+	"os"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/kirsle/configdir"
 	"github.com/knadh/koanf/parsers/json"
 	"github.com/knadh/koanf/providers/file"
@@ -31,7 +33,10 @@ func main() {
 	flag.Parse()
 
 	defaultConfigLocation := configdir.LocalConfig("openidprovider") + "/openidprovider.json"
-	server.RunServer(server.Controller{Store: &store, Config: readConfig(lang.IfElse(configFileLocation == "", defaultConfigLocation, configFileLocation))})
+	server.RunServer(server.Controller{
+		Store:  &store,
+		Config: readConfig(lang.IfElse(configFileLocation == "", defaultConfigLocation, configFileLocation)),
+	})
 }
 
 func readConfig(configFileLocation string) domain.Configuration {
@@ -50,6 +55,35 @@ func readConfig(configFileLocation string) domain.Configuration {
 	serverPort := k.Int("serverport")
 	if serverPort == 0 {
 		serverPort = 1323
+	}
+	baseUrl := k.String("baseurl")
+	if baseUrl == "" {
+		log.Fatalf("Base URL is required in the configuration")
+	}
+	privateKeyPemFilename := k.String("privatekeypemfilename")
+	if privateKeyPemFilename == "" {
+		log.Fatalf("Private key filename is required in the configuration")
+	}
+	privateKeyFile, err := os.ReadFile(privateKeyPemFilename)
+	if err != nil {
+		log.Fatalf("Error reading private key file: %s", err)
+	}
+	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM(privateKeyFile)
+	if err != nil {
+		log.Fatalf("Error parsing private key: %s", err)
+	}
+
+	publicKeyPemFilename := k.String("publickeypemfilename")
+	if publicKeyPemFilename == "" {
+		log.Fatalf("Public key filename is required in the configuration")
+	}
+	publicKeyFile, err := os.ReadFile(publicKeyPemFilename)
+	if err != nil {
+		log.Fatalf("Error reading public key file: %s", err)
+	}
+	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(publicKeyFile)
+	if err != nil {
+		log.Fatalf("Error parsing public key: %s", err)
 	}
 
 	configuredClients := k.Get("registeredclients")
@@ -70,10 +104,6 @@ func readConfig(configFileLocation string) domain.Configuration {
 		if !ok {
 			log.Fatalf("client id is not a string")
 		}
-		clientSecret, ok := client["secret"].(string)
-		if !ok {
-			log.Fatalf("client secret is not a string")
-		}
 		// NOTE: again we can not cast to `[]string` yet, we do that later for each individual redirect uri
 		redirectUris, ok := client["redirecturis"].([]interface{})
 		if !ok {
@@ -87,10 +117,14 @@ func readConfig(configFileLocation string) domain.Configuration {
 			}
 			redirectUrisString[i] = uri
 		}
+		basicAuthSecret, ok := client["basicauthsecret"].(string)
+		if !ok {
+			log.Fatalf("basic auth secret is not a string")
+		}
 		registeredClients[domain.ClientId(clientId)] = domain.Client{
-			Id:           domain.ClientId(clientId),
-			RedirectUris: redirectUrisString,
-			Secret:       clientSecret,
+			Id:              domain.ClientId(clientId),
+			RedirectUris:    redirectUrisString,
+			BasicAuthSecret: basicAuthSecret,
 		}
 	}
 	issuer := k.MustString("jwt.issuer")
@@ -99,10 +133,13 @@ func readConfig(configFileLocation string) domain.Configuration {
 		ServerReadTimeoutSeconds:  serverReadTimeoutSeconds,
 		ServerWriteTimeoutSeconds: serverWriteTimeoutSeconds,
 		ServerPort:                serverPort,
+		BaseUrl:                   baseUrl,
 		RegisteredClients:         registeredClients,
 		JwtConfig: domain.JwtConfiguration{
 			Issuer:                 issuer,
 			IdTokenValidityMinutes: int(idTokenValidityMinutes),
+			PrivateKey:             privateKey,
+			PublicKey:              publicKey,
 		},
 	}
 }
