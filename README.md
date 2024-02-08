@@ -21,7 +21,7 @@ The implementation currently implements [OpenID Connect Core 1.0](https://openid
   - `acr_values`
 - The provider does not support passing request parameters as JWTs as per <https://openid.net/specs/openid-connect-core-1_0.html#JWTRequests>
 - ID Token
-  - Signed with HS256 using the client secret
+  - Signed with RS256 using an RSA keypair
   - Unsupported claims:
     - `auth_time`: it's optional and only required if `max_age` was specified in auth request which we also do not support yet
     - `at_hash`
@@ -37,4 +37,3 @@ The implementation currently implements [OpenID Connect Core 1.0](https://openid
 - Support `prompt` with the value `none` in the authorization request by immediately returning an error (since we always reauthenticate, and in this case we shouldn't)
 - Support `nonce` in the authorization request (and all the way through ID token generation)
 - Go through all the security considerations of the OAuth 2 spec and verify whether additional measures are needed
-- Support RS256 asymmetric key pair signing (see <https://auth0.com/blog/rs256-vs-hs256-whats-the-difference/> for rationale)

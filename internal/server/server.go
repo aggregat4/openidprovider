@@ -86,6 +86,9 @@ func InitServer(controller Controller) *echo.Echo {
 	return e
 }
 
+// This endpoint returns a JWKS document containing the public key
+// that can be used by clients to verify the signature of the ID token
+// as we are using the RS256 algorithm with public and private keys
 func (controller *Controller) jwks(c echo.Context) error {
 	jwks := jose.JSONWebKeySet{
 		Keys: make([]jose.JSONWebKey, 1),
