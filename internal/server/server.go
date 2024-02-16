@@ -113,7 +113,7 @@ func (controller *Controller) jwks(c echo.Context) error {
 func (controller *Controller) openIdConfiguration(c echo.Context) error {
 	c.Response().Header().Set("Content-Type", CONTENT_TYPE_JSON)
 	return c.JSON(http.StatusOK, domain.OpenIdConfiguration{
-		Issuer:                controller.Config.JwtConfig.Issuer,
+		Issuer:                controller.Config.BaseUrl,
 		AuthorizationEndpoint: controller.Config.BaseUrl + "/authorize",
 		TokenEndpoint:         controller.Config.BaseUrl + "/token",
 		// UserInfoEndpoint: controller.Config.BaseUrl + "/userinfo",
@@ -200,7 +200,8 @@ func (controller *Controller) token(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
 	// TODO: figure out if I want to set the expires_in parameter
-	return c.String(http.StatusOK, "{\"access_token\":\""+accessToken+"\", \"token_type\":\"Bearer\", \"id_token\":\""+idToken+"\"")
+	return c.String(http.StatusOK,
+		"{\"access_token\":\""+accessToken+"\", \"token_type\":\"Bearer\", \"id_token\":\""+idToken+"\"}")
 }
 
 // See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
@@ -228,12 +229,7 @@ func (controller *Controller) authorize(c echo.Context) error {
 	authReqRedirectUri := getParam(c, "redirect_uri")
 	authReqState := getParam(c, "state")
 	// Do basic validation whether required parameters are present first and respond with bad request if not
-	if len(authReqScopes) == 0 ||
-		!contains(authReqScopes, "openid") ||
-		authReqResponseType == "" ||
-		authReqResponseType != "code" ||
-		authReqClientId == "" ||
-		authReqRedirectUri == "" {
+	if len(authReqScopes) == 0 || !contains(authReqScopes, "openid") || authReqResponseType != "code" || authReqClientId == "" || authReqRedirectUri == "" {
 		return c.String(http.StatusBadRequest, "Missing required parameters")
 	}
 	// Validate the client and redirect URI as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 and respond if an error
