@@ -26,6 +26,7 @@ type Configuration struct {
 	JwtConfig                 JwtConfiguration
 }
 
+// OpenIdConfiguration This represents the document served at /.well-known/openid-configuration
 type OpenIdConfiguration struct {
 	Issuer                string `json:"issuer"`
 	AuthorizationEndpoint string `json:"authorization_endpoint"`
