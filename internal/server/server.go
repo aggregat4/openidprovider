@@ -306,14 +306,14 @@ func (controller *Controller) login(c echo.Context) error {
 		// Generate a code
 		// See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
 		// See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
-		uuid := uuid.New().String()
-		err := controller.Store.SaveCode(repository.Code{Code: uuid, UserName: user.Username, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
+		code := uuid.New().String()
+		err := controller.Store.SaveCode(repository.Code{Code: code, UserName: user.Username, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
 		if err != nil {
 			return sendInternalError(c, fullRedirectUri, state)
 		}
 
 		query := fullRedirectUri.Query()
-		query.Add("code", uuid)
+		query.Add("code", code)
 		query.Add("state", state)
 		fullRedirectUri.RawQuery = query.Encode()
 		return c.Redirect(http.StatusFound, fullRedirectUri.String())
