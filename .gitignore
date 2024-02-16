@@ -6,3 +6,4 @@ tmp/
 *sqlite-shm
 *sqlite-wal
 coverage.*
+.idea/
