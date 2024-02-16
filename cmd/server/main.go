@@ -128,7 +128,6 @@ func readConfig(configFileLocation string) domain.Configuration {
 			BasicAuthSecret: basicAuthSecret,
 		}
 	}
-	issuer := k.MustString("jwt.issuer")
 	idTokenValidityMinutes := k.MustInt("jwt.idtokenvalidityminutes")
 	return domain.Configuration{
 		ServerReadTimeoutSeconds:  serverReadTimeoutSeconds,
@@ -137,7 +136,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 		BaseUrl:                   baseUrl,
 		RegisteredClients:         registeredClients,
 		JwtConfig: domain.JwtConfiguration{
-			Issuer:                 issuer,
+			Issuer:                 baseUrl,
 			IdTokenValidityMinutes: int(idTokenValidityMinutes),
 			PrivateKey:             privateKey,
 			PublicKey:              publicKey,
