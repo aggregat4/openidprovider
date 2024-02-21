@@ -89,7 +89,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 
 	configuredClients := k.Get("registeredclients")
 	// NOTE: I tried casting to `[]map[string]interface{}` but that did not work, even though that is the type
-	// Apparently go does not have that information yet. Instead this is a generic object here and later in the
+	// Apparently go does not have that information yet. Instead, this is a generic object here and later in the
 	// loop we cast the objects to a `map[string]interface{}`
 	clients, ok := configuredClients.([]interface{})
 	if !ok {
@@ -122,8 +122,8 @@ func readConfig(configFileLocation string) domain.Configuration {
 		if !ok {
 			log.Fatalf("basic auth secret is not a string")
 		}
-		registeredClients[domain.ClientId(clientId)] = domain.Client{
-			Id:              domain.ClientId(clientId),
+		registeredClients[clientId] = domain.Client{
+			Id:              clientId,
 			RedirectUris:    redirectUrisString,
 			BasicAuthSecret: basicAuthSecret,
 		}
@@ -137,7 +137,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 		RegisteredClients:         registeredClients,
 		JwtConfig: domain.JwtConfiguration{
 			Issuer:                 baseUrl,
-			IdTokenValidityMinutes: int(idTokenValidityMinutes),
+			IdTokenValidityMinutes: idTokenValidityMinutes,
 			PrivateKey:             privateKey,
 			PublicKey:              publicKey,
 		},
