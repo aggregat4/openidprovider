@@ -322,7 +322,7 @@ func (controller *Controller) login(c echo.Context) error {
 		query.Add("code", code)
 		query.Add("state", state)
 		fullRedirectUri.RawQuery = query.Encode()
-		logger.Info("login request password ok. redirecting to ", fullRedirectUri.String())
+		logger.Info("login request password ok. redirecting")
 		return c.Redirect(http.StatusFound, fullRedirectUri.String())
 	}
 	logger.Info("login request password not ok")
