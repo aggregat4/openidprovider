@@ -5,6 +5,8 @@ import (
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
 	"aggregat4/openidprovider/pkg/crypto"
+	"crypto/rand"
+	"crypto/rsa"
 
 	"fmt"
 	"io"
@@ -32,11 +34,13 @@ const TEST_SECRET = "testsecret"
 const TEST_REDIRECT_URI = "http://localhost:8080"
 const AUTHORIZE_URL = "http://localhost:1323/authorize"
 const LOGIN_URL = "http://localhost:1323/login"
+const TEST_JWTISSUER = "testissuer"
 
 var serverConfig = domain.Configuration{
 	ServerReadTimeoutSeconds:  5,
 	ServerWriteTimeoutSeconds: 10,
 	ServerPort:                1323,
+	BaseUrl:                   "http://localhost:1323",
 	RegisteredClients: map[domain.ClientId]domain.Client{
 		TEST_CLIENTID: {
 			Id:              TEST_CLIENTID,
@@ -45,13 +49,15 @@ var serverConfig = domain.Configuration{
 		},
 	},
 	JwtConfig: domain.JwtConfiguration{
-		Issuer:                 "test",
+		Issuer:                 TEST_JWTISSUER,
 		IdTokenValidityMinutes: 5,
+		PrivateKey:             nil,
+		PublicKey:              nil,
 	},
 }
 
 func TestAuthorizeWithoutParameters(t *testing.T) {
-	echoServer, controller := waitForServer()
+	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	res, err := http.Get(AUTHORIZE_URL)
@@ -62,7 +68,7 @@ func TestAuthorizeWithoutParameters(t *testing.T) {
 }
 
 func TestAuthorize(t *testing.T) {
-	echoServer, controller := waitForServer()
+	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	res, err := http.Get(AUTHORIZE_URL + "?scope=openid&client_id=" + TEST_CLIENTID + "&response_type=code&redirect_uri=" + TEST_REDIRECT_URI + "&state=" + TEST_STATE)
@@ -77,7 +83,7 @@ func TestAuthorize(t *testing.T) {
 }
 
 func TestLoginPageGet(t *testing.T) {
-	echoServer, controller := waitForServer()
+	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	res, err := http.Get(LOGIN_URL)
@@ -88,7 +94,7 @@ func TestLoginPageGet(t *testing.T) {
 }
 
 func TestLoginWithoutCsrf(t *testing.T) {
-	echoServer, controller := waitForServer()
+	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	data := url.Values{}
@@ -133,7 +139,7 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 }
 
 func TestLoginWithUnknownUser(t *testing.T) {
-	echoServer, controller := waitForServer()
+	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	// Don't create a test user so we can assert that we get an error
@@ -146,7 +152,7 @@ func TestLoginWithUnknownUser(t *testing.T) {
 }
 
 func TestLoginWithWrongPassword(t *testing.T) {
-	echoServer, controller := waitForServer()
+	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	createTestUser(t, controller)
@@ -159,7 +165,7 @@ func TestLoginWithWrongPassword(t *testing.T) {
 }
 
 func TestLoginWithExistingUser(t *testing.T) {
-	echoServer, controller := waitForServer()
+	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	createTestUser(t, controller)
@@ -175,7 +181,7 @@ func TestLoginWithExistingUser(t *testing.T) {
 }
 
 func TestLoginAndFetchToken(t *testing.T) {
-	echoServer, controller := waitForServer()
+	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	createTestUser(t, controller)
@@ -223,11 +229,12 @@ func TestLoginAndFetchToken(t *testing.T) {
 }
 
 func TestGenerateValidIdToken(t *testing.T) {
+	loadKeys(t)
 	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TEST_CLIENTID, TEST_USERNAME)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
-	claims, err := decodeIdTokenClaims(t, token, TEST_SECRET)
+	claims, err := decodeIdTokenClaims(t, token, serverConfig.JwtConfig.PublicKey)
 	assert.NoError(t, err)
 	assert.Equal(t, serverConfig.JwtConfig.Issuer, claims["iss"])
 	assert.Equal(t, TEST_USERNAME, claims["sub"])
@@ -236,17 +243,27 @@ func TestGenerateValidIdToken(t *testing.T) {
 }
 
 func TestGenerateIdTokenWithWrongSecret(t *testing.T) {
-	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TEST_CLIENTID, TEST_USERNAME)
+	loadKeys(t)
+	wrongKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	token, err := server.GenerateIdToken(domain.JwtConfiguration{
+		Issuer:                 TEST_JWTISSUER,
+		IdTokenValidityMinutes: 5,
+		PrivateKey:             wrongKey,
+		PublicKey:              nil,
+	}, TEST_CLIENTID, TEST_USERNAME)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
-	_, err = decodeIdTokenClaims(t, token, TEST_SECRET)
+	_, err = decodeIdTokenClaims(t, token, serverConfig.JwtConfig.PublicKey)
 	assert.Error(t, err)
 }
 
-func decodeIdTokenClaims(t *testing.T, token string, secret string) (jwt.MapClaims, error) {
+func decodeIdTokenClaims(t *testing.T, token string, publicKey *rsa.PublicKey) (jwt.MapClaims, error) {
 	claims := jwt.MapClaims{}
 	_, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
-		return []byte(secret), nil
+		return publicKey, nil
 	})
 	return claims, err
 }
@@ -286,7 +303,8 @@ func extractCsrfToken(body string) string {
 	return matches[1]
 }
 
-func waitForServer() (*echo.Echo, server.Controller) {
+func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
+	loadKeys(t)
 	var store repository.Store
 	err := store.InitAndVerifyDb(repository.CreateInMemoryDbUrl())
 	if err != nil {
@@ -307,4 +325,15 @@ func readBody(res *http.Response) string {
 		panic(err)
 	}
 	return string(body)
+}
+
+func loadKeys(t *testing.T) {
+	if serverConfig.JwtConfig.PrivateKey == nil {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		serverConfig.JwtConfig.PrivateKey = key
+		serverConfig.JwtConfig.PublicKey = &key.PublicKey
+	}
 }
