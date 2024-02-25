@@ -18,14 +18,20 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	pem.Encode(privateFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
-	privateFile.Close()
+	err = pem.Encode(privateFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+	if err != nil {
+		panic(err)
+	}
+	defer privateFile.Close()
 	// Store public key in PEM file
 	publicKey := privateKey.PublicKey
 	publicFile, err := os.Create("public.pem")
 	if err != nil {
 		panic(err)
 	}
-	pem.Encode(publicFile, &pem.Block{Type: "RSA PUBLIC KEY", Bytes: x509.MarshalPKCS1PublicKey(&publicKey)})
-	publicFile.Close()
+	err = pem.Encode(publicFile, &pem.Block{Type: "RSA PUBLIC KEY", Bytes: x509.MarshalPKCS1PublicKey(&publicKey)})
+	if err != nil {
+		panic(err)
+	}
+	defer publicFile.Close()
 }
