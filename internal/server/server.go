@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -294,7 +295,7 @@ func (controller *Controller) login(c echo.Context) error {
 	// find the user and validate password
 	user, err := controller.Store.FindUser(username)
 	if err != nil {
-		return sendInternalError(c, fullRedirectUri, state)
+		return sendInternalError(c, err, fullRedirectUri, state)
 	}
 	if user == nil {
 		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
@@ -309,7 +310,7 @@ func (controller *Controller) login(c echo.Context) error {
 		code := uuid.New().String()
 		err := controller.Store.SaveCode(repository.Code{Code: code, UserName: user.Username, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
 		if err != nil {
-			return sendInternalError(c, fullRedirectUri, state)
+			return sendInternalError(c, err, fullRedirectUri, state)
 		}
 
 		query := fullRedirectUri.Query()
@@ -323,7 +324,8 @@ func (controller *Controller) login(c echo.Context) error {
 	return sendOauthError(c, fullRedirectUri, "access_denied", "Invalid username or password", state)
 }
 
-func sendInternalError(c echo.Context, fullRedirectUri *url.URL, state string) error {
+func sendInternalError(c echo.Context, originalError error, fullRedirectUri *url.URL, state string) error {
+	slog.Error("Error processing request: ", originalError)
 	return sendOauthError(c, fullRedirectUri, "server_error", "Internal server error", state)
 }
 
