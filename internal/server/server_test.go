@@ -109,6 +109,7 @@ func TestLoginWithoutCsrf(t *testing.T) {
 func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
 	// We need to authorize first so we get a login page with a csrf token
 	req, _ := http.NewRequest("GET", AUTHORIZE_URL+"?scope=openid&client_id="+TEST_CLIENTID+"&response_type=code&redirect_uri="+TEST_REDIRECT_URI+"&state="+TEST_STATE, nil)
+
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -290,6 +291,7 @@ func createTestHttpClient() *http.Client {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+		Transport: &http.Transport{DisableKeepAlives: true},
 	}
 }
 

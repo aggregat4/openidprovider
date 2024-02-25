@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +26,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
-// var logger = log.Default()
+var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 //go:embed public/views/*.html
 var viewTemplates embed.FS
@@ -325,7 +326,7 @@ func (controller *Controller) login(c echo.Context) error {
 }
 
 func sendInternalError(c echo.Context, originalError error, fullRedirectUri *url.URL, state string) error {
-	slog.Error("Error processing request: ", originalError)
+	logger.Error("Error processing request: ", originalError)
 	return sendOauthError(c, fullRedirectUri, "server_error", "Internal server error", state)
 }
 
