@@ -275,6 +275,7 @@ type LoginPage struct {
 // But since this treats a potential malicious client as a real client, this seems unwise? Or is it better
 // to return an OAuth error so the implementor of a buggy client can see what's wrong?
 func (controller *Controller) login(c echo.Context) error {
+	logger.Info("login request received")
 	clientId := c.FormValue("clientid")
 	redirectUri := c.FormValue("redirecturi")
 	fullRedirectUri, err := url.Parse(redirectUri)
@@ -293,6 +294,8 @@ func (controller *Controller) login(c echo.Context) error {
 	username := c.FormValue("username")
 	password := c.FormValue("password")
 
+	logger.Info("login request validated")
+
 	// find the user and validate password
 	user, err := controller.Store.FindUser(username)
 	if err != nil {
@@ -302,6 +305,7 @@ func (controller *Controller) login(c echo.Context) error {
 		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
 		return sendOauthError(c, fullRedirectUri, "access_denied", "Invalid username or password", state)
 	}
+	logger.Info("login request user found")
 	if crypto.CheckPasswordHash(password, user.Password) {
 		// See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
 
@@ -318,8 +322,10 @@ func (controller *Controller) login(c echo.Context) error {
 		query.Add("code", code)
 		query.Add("state", state)
 		fullRedirectUri.RawQuery = query.Encode()
+		logger.Info("login request password ok. redirecting to ", fullRedirectUri.String())
 		return c.Redirect(http.StatusFound, fullRedirectUri.String())
 	}
+	logger.Info("login request password not ok")
 
 	// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
 	return sendOauthError(c, fullRedirectUri, "access_denied", "Invalid username or password", state)

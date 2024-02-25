@@ -291,7 +291,7 @@ func createTestHttpClient() *http.Client {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-		Transport: &http.Transport{DisableKeepAlives: true},
+		//Transport: &http.Transport{DisableKeepAlives: true},
 	}
 }
 
