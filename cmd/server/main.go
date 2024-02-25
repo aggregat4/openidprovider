@@ -4,12 +4,10 @@ import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
+	"aggregat4/openidprovider/pkg/crypto"
 	"aggregat4/openidprovider/pkg/lang"
 	"flag"
 	"log"
-	"os"
-
-	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/kirsle/configdir"
 	"github.com/knadh/koanf/parsers/json"
@@ -65,26 +63,18 @@ func readConfig(configFileLocation string) domain.Configuration {
 	if privateKeyPemFilename == "" {
 		log.Fatalf("Private key filename is required in the configuration")
 	}
-	privateKeyFile, err := os.ReadFile(privateKeyPemFilename)
+	privateKey, err := crypto.ReadRSAPrivateKey(privateKeyPemFilename)
 	if err != nil {
 		log.Fatalf("Error reading private key file: %s", err)
-	}
-	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM(privateKeyFile)
-	if err != nil {
-		log.Fatalf("Error parsing private key: %s", err)
 	}
 
 	publicKeyPemFilename := k.String("publickeypemfilename")
 	if publicKeyPemFilename == "" {
 		log.Fatalf("Public key filename is required in the configuration")
 	}
-	publicKeyFile, err := os.ReadFile(publicKeyPemFilename)
+	publicKey, err := crypto.ReadRSAPublicKey(publicKeyPemFilename)
 	if err != nil {
 		log.Fatalf("Error reading public key file: %s", err)
-	}
-	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(publicKeyFile)
-	if err != nil {
-		log.Fatalf("Error parsing public key: %s", err)
 	}
 
 	configuredClients := k.Get("registeredclients")
