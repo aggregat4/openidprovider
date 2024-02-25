@@ -1,5 +1,5 @@
 bin/
-*.sqlite
+*.sqlite*
 tmp/
 .vscode/
 .env
