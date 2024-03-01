@@ -323,14 +323,11 @@ func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 func waitForServerStart(t *testing.T, url string) {
 	maxRetries := 10
 	for i := 0; i < maxRetries; i++ {
-		// Try to make a request to the server.
 		resp, err := http.Get(url)
 		if err == nil {
-			// If we get a response, the server is up.
 			resp.Body.Close()
 			return
 		}
-		// If we're here, the server is not ready yet. Wait before retrying.
 		time.Sleep(time.Second)
 	}
 	t.Fatalf("Server did not start after %d retries", maxRetries)
