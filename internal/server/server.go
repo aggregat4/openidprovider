@@ -57,10 +57,11 @@ func InitServer(controller Controller) *echo.Echo {
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-	e.Use(middleware.BodyDump(func(c echo.Context, reqBody, resBody []byte) {
-		logger.Info("Request: %s %s", "requestmethod", c.Request().Method, "requesturl", c.Request().URL)
-		logger.Info("Response: %s", "responsebody", string(resBody))
-	}))
+	// Debug logging
+	//e.Use(middleware.BodyDump(func(c echo.Context, reqBody, resBody []byte) {
+	//	logger.Info("Request: %s %s", "requestmethod", c.Request().Method, "requesturl", c.Request().URL)
+	//	logger.Info("Response: %s", "responsebody", string(resBody))
+	//}))
 	// Added session middleware just so we can have persistence for CSRF tokens
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte(uuid.New().String()))))
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{Level: 5}))
