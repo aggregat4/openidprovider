@@ -31,7 +31,7 @@ var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 //go:embed public/views/*.html
 var viewTemplates embed.FS
 
-const CONTENT_TYPE_JSON = "application/json;charset=UTF-8"
+const ContentTypeJson = "application/json;charset=UTF-8"
 
 type Controller struct {
 	Store  *repository.Store
@@ -118,7 +118,7 @@ func (controller *Controller) jwks(c echo.Context) error {
 // openIdConfiguration returns the OpenID Connect configuration for this
 // server. See https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationResponse
 func (controller *Controller) openIdConfiguration(c echo.Context) error {
-	c.Response().Header().Set("Content-Type", CONTENT_TYPE_JSON)
+	c.Response().Header().Set("Content-Type", ContentTypeJson)
 	return c.JSON(http.StatusOK, domain.OpenIdConfiguration{
 		Issuer:                controller.Config.BaseUrl,
 		AuthorizationEndpoint: controller.Config.BaseUrl + "/authorize",
@@ -143,8 +143,8 @@ func (controller *Controller) basicAuthValidator(username, password string, c ec
 		return false, nil
 	}
 	c.Set("client_id", client.Id)
-	return (subtle.ConstantTimeCompare([]byte(username), []byte(client.Id)) == 1 &&
-		subtle.ConstantTimeCompare([]byte(password), []byte(client.BasicAuthSecret)) == 1), nil
+	return subtle.ConstantTimeCompare([]byte(username), []byte(client.Id)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(password), []byte(client.BasicAuthSecret)) == 1, nil
 }
 
 // OIDC Token Endpoint is described in:
@@ -200,7 +200,7 @@ func (controller *Controller) token(c echo.Context) error {
 	// }
 
 	// Respond with the access token
-	c.Response().Header().Set("Content-Type", CONTENT_TYPE_JSON)
+	c.Response().Header().Set("Content-Type", ContentTypeJson)
 	c.Response().Header().Set("Cache-Control", "no-store")
 	idToken, err := GenerateIdToken(controller.Config.JwtConfig, clientId, existingCode.UserName)
 	if err != nil {
@@ -211,7 +211,7 @@ func (controller *Controller) token(c echo.Context) error {
 		"{\"access_token\":\""+accessToken+"\", \"token_type\":\"Bearer\", \"id_token\":\""+idToken+"\"}")
 }
 
-// See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
+// GenerateIdToken See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
 func GenerateIdToken(jwtConfig domain.JwtConfiguration, clientId string, userName string) (string, error) {
 	t := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 		"iss": jwtConfig.Issuer,
@@ -224,7 +224,7 @@ func GenerateIdToken(jwtConfig domain.JwtConfiguration, clientId string, userNam
 }
 
 func sendOauthAccessTokenError(c echo.Context, s string) error {
-	c.Response().Header().Set("Content-Type", CONTENT_TYPE_JSON)
+	c.Response().Header().Set("Content-Type", ContentTypeJson)
 	return c.String(http.StatusBadRequest, "{\"error\":\""+s+"\"}")
 }
 
