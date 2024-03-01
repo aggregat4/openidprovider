@@ -234,7 +234,7 @@ func TestGenerateValidIdToken(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
-	claims, err := decodeIdTokenClaims(t, token, serverConfig.JwtConfig.PublicKey)
+	claims, err := decodeIdTokenClaims(token, serverConfig.JwtConfig.PublicKey)
 	assert.NoError(t, err)
 	assert.Equal(t, serverConfig.JwtConfig.Issuer, claims["iss"])
 	assert.Equal(t, TestUsername, claims["sub"])
@@ -256,11 +256,11 @@ func TestGenerateIdTokenWithWrongSecret(t *testing.T) {
 	}, TestClientid, TestUsername)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
-	_, err = decodeIdTokenClaims(t, token, serverConfig.JwtConfig.PublicKey)
+	_, err = decodeIdTokenClaims(token, serverConfig.JwtConfig.PublicKey)
 	assert.Error(t, err)
 }
 
-func decodeIdTokenClaims(t *testing.T, token string, publicKey *rsa.PublicKey) (jwt.MapClaims, error) {
+func decodeIdTokenClaims(token string, publicKey *rsa.PublicKey) (jwt.MapClaims, error) {
 	claims := jwt.MapClaims{}
 	_, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
 		return publicKey, nil
