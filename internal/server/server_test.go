@@ -26,15 +26,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const TEST_CLIENTID = "testclientid"
-const TEST_USERNAME = "testusername"
-const TEST_PASSWORD = "testpassword"
-const TEST_STATE = "teststate"
-const TEST_SECRET = "testsecret"
-const TEST_REDIRECT_URI = "http://localhost:8080"
-const AUTHORIZE_URL = "http://localhost:1323/authorize"
-const LOGIN_URL = "http://localhost:1323/login"
-const TEST_JWTISSUER = "testissuer"
+const TestClientid = "testclientid"
+const TestUsername = "testusername"
+const TestPassword = "testpassword"
+const TestState = "teststate"
+const TestSecret = "testsecret"
+const TestRedirectUri = "http://localhost:8080"
+const AuthorizeUrl = "http://localhost:1323/authorize"
+const LoginUrl = "http://localhost:1323/login"
+const TestJwtissuer = "testissuer"
 
 var serverConfig = domain.Configuration{
 	ServerReadTimeoutSeconds:  50,
@@ -42,14 +42,14 @@ var serverConfig = domain.Configuration{
 	ServerPort:                1323,
 	BaseUrl:                   "http://localhost:1323",
 	RegisteredClients: map[domain.ClientId]domain.Client{
-		TEST_CLIENTID: {
-			Id:              TEST_CLIENTID,
-			RedirectUris:    []string{TEST_REDIRECT_URI},
-			BasicAuthSecret: TEST_SECRET,
+		TestClientid: {
+			Id:              TestClientid,
+			RedirectUris:    []string{TestRedirectUri},
+			BasicAuthSecret: TestSecret,
 		},
 	},
 	JwtConfig: domain.JwtConfiguration{
-		Issuer:                 TEST_JWTISSUER,
+		Issuer:                 TestJwtissuer,
 		IdTokenValidityMinutes: 5,
 		PrivateKey:             nil,
 		PublicKey:              nil,
@@ -60,7 +60,7 @@ func TestAuthorizeWithoutParameters(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
-	res, err := http.Get(AUTHORIZE_URL)
+	res, err := http.Get(AuthorizeUrl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestAuthorize(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
-	res, err := http.Get(AUTHORIZE_URL + "?scope=openid&client_id=" + TEST_CLIENTID + "&response_type=code&redirect_uri=" + TEST_REDIRECT_URI + "&state=" + TEST_STATE)
+	res, err := http.Get(AuthorizeUrl + "?scope=openid&client_id=" + TestClientid + "&response_type=code&redirect_uri=" + TestRedirectUri + "&state=" + TestState)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,14 +79,14 @@ func TestAuthorize(t *testing.T) {
 	assert.Equal(t, "text/html; charset=UTF-8", res.Header.Get("Content-Type"))
 	assert.Equal(t, "no-store", res.Header.Get("Cache-Control"))
 	// check whether our state shows up in the response
-	assert.Contains(t, readBody(res), fmt.Sprintf("value=\"%s\"", TEST_STATE))
+	assert.Contains(t, readBody(res), fmt.Sprintf("value=\"%s\"", TestState))
 }
 
 func TestLoginPageGet(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
-	res, err := http.Get(LOGIN_URL)
+	res, err := http.Get(LoginUrl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestLoginWithoutCsrf(t *testing.T) {
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	data := url.Values{}
-	res, err := http.PostForm(LOGIN_URL, data)
+	res, err := http.PostForm(LoginUrl, data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestLoginWithoutCsrf(t *testing.T) {
 
 func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
 	// We need to authorize first so we get a login page with a csrf token
-	req, _ := http.NewRequest("GET", AUTHORIZE_URL+"?scope=openid&client_id="+TEST_CLIENTID+"&response_type=code&redirect_uri="+TEST_REDIRECT_URI+"&state="+TEST_STATE, nil)
+	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -120,13 +120,13 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 	}
 	// Perform the login
 	data := url.Values{}
-	data.Set("clientid", TEST_CLIENTID)
-	data.Set("username", TEST_USERNAME)
+	data.Set("clientid", TestClientid)
+	data.Set("username", TestUsername)
 	data.Set("password", password)
-	data.Set("redirecturi", TEST_REDIRECT_URI)
-	data.Set("state", TEST_STATE)
+	data.Set("redirecturi", TestRedirectUri)
+	data.Set("state", TestState)
 	data.Set("csrf_token", csrfToken)
-	req, err = http.NewRequest("POST", LOGIN_URL, strings.NewReader(data.Encode()))
+	req, err = http.NewRequest("POST", LoginUrl, strings.NewReader(data.Encode()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestLoginWithUnknownUser(t *testing.T) {
 	defer controller.Store.Close()
 	// Don't create a test user so we can assert that we get an error
 	client := createTestHttpClient()
-	res := performAuthorizeAndLogin(t, client, TEST_PASSWORD)
+	res := performAuthorizeAndLogin(t, client, TestPassword)
 	// assert that we redirected to the client with a code
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
@@ -170,14 +170,14 @@ func TestLoginWithExistingUser(t *testing.T) {
 	defer controller.Store.Close()
 	createTestUser(t, controller)
 	client := createTestHttpClient()
-	res := performAuthorizeAndLogin(t, client, TEST_PASSWORD)
+	res := performAuthorizeAndLogin(t, client, TestPassword)
 	// assert that we redirected to the client with a code
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
-	assert.Contains(t, locationHeader, TEST_REDIRECT_URI)
+	assert.Contains(t, locationHeader, TestRedirectUri)
 	assert.NotContains(t, locationHeader, "error=")
 	assert.Contains(t, locationHeader, "code=")
-	assert.Contains(t, locationHeader, "state="+TEST_STATE)
+	assert.Contains(t, locationHeader, "state="+TestState)
 }
 
 func TestLoginAndFetchToken(t *testing.T) {
@@ -186,14 +186,14 @@ func TestLoginAndFetchToken(t *testing.T) {
 	defer controller.Store.Close()
 	createTestUser(t, controller)
 	client := createTestHttpClient()
-	res := performAuthorizeAndLogin(t, client, TEST_PASSWORD)
+	res := performAuthorizeAndLogin(t, client, TestPassword)
 	// assert that we redirected to the client with a code and no error
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
-	assert.Contains(t, locationHeader, TEST_REDIRECT_URI)
+	assert.Contains(t, locationHeader, TestRedirectUri)
 	assert.NotContains(t, locationHeader, "error=")
 	assert.Contains(t, locationHeader, "code=")
-	assert.Contains(t, locationHeader, "state="+TEST_STATE)
+	assert.Contains(t, locationHeader, "state="+TestState)
 	// Now fetch the token
 	parsedUrl, err := url.Parse(locationHeader)
 	if err != nil {
@@ -210,9 +210,9 @@ func TestLoginAndFetchToken(t *testing.T) {
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
-	data.Set("redirect_uri", TEST_REDIRECT_URI)
+	data.Set("redirect_uri", TestRedirectUri)
 	req, _ := http.NewRequest("POST", "http://localhost:1323/token", strings.NewReader(data.Encode()))
-	req.SetBasicAuth(TEST_CLIENTID, TEST_SECRET)
+	req.SetBasicAuth(TestClientid, TestSecret)
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	res, err = client.Do(req)
 	if err != nil {
@@ -230,15 +230,15 @@ func TestLoginAndFetchToken(t *testing.T) {
 
 func TestGenerateValidIdToken(t *testing.T) {
 	loadKeys(t)
-	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TEST_CLIENTID, TEST_USERNAME)
+	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TestClientid, TestUsername)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
 	claims, err := decodeIdTokenClaims(t, token, serverConfig.JwtConfig.PublicKey)
 	assert.NoError(t, err)
 	assert.Equal(t, serverConfig.JwtConfig.Issuer, claims["iss"])
-	assert.Equal(t, TEST_USERNAME, claims["sub"])
-	assert.Equal(t, TEST_CLIENTID, claims["aud"])
+	assert.Equal(t, TestUsername, claims["sub"])
+	assert.Equal(t, TestClientid, claims["aud"])
 	assert.WithinDuration(t, time.Now().Add(time.Minute*time.Duration(serverConfig.JwtConfig.IdTokenValidityMinutes)), time.Unix(int64(claims["exp"].(float64)), 0), time.Second)
 }
 
@@ -249,11 +249,11 @@ func TestGenerateIdTokenWithWrongSecret(t *testing.T) {
 		panic(err)
 	}
 	token, err := server.GenerateIdToken(domain.JwtConfiguration{
-		Issuer:                 TEST_JWTISSUER,
+		Issuer:                 TestJwtissuer,
 		IdTokenValidityMinutes: 5,
 		PrivateKey:             wrongKey,
 		PublicKey:              nil,
-	}, TEST_CLIENTID, TEST_USERNAME)
+	}, TestClientid, TestUsername)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 	_, err = decodeIdTokenClaims(t, token, serverConfig.JwtConfig.PublicKey)
@@ -269,11 +269,11 @@ func decodeIdTokenClaims(t *testing.T, token string, publicKey *rsa.PublicKey) (
 }
 
 func createTestUser(t *testing.T, controller server.Controller) {
-	hashedPassword, err := crypto.HashPassword(TEST_PASSWORD)
+	hashedPassword, err := crypto.HashPassword(TestPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = controller.Store.CreateUser(TEST_USERNAME, hashedPassword)
+	err = controller.Store.CreateUser(TestUsername, hashedPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
