@@ -316,8 +316,25 @@ func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 	go func() {
 		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
 	}()
-	time.Sleep(20 * time.Second) // massive hack since there appears to be no way to know when the server is ready
+	//time.Sleep(5 * time.Second) // massive hack since there appears to be no way to know when the server is ready
+	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort))
 	return echoServer, controller
+}
+
+func waitForServerStart(t *testing.T, url string) {
+	maxRetries := 10
+	for i := 0; i < maxRetries; i++ {
+		// Try to make a request to the server.
+		resp, err := http.Get(url)
+		if err == nil {
+			// If we get a response, the server is up.
+			resp.Body.Close()
+			return
+		}
+		// If we're here, the server is not ready yet. Wait before retrying.
+		time.Sleep(time.Second)
+	}
+	t.Fatalf("Server did not start after %d retries", maxRetries)
 }
 
 func readBody(res *http.Response) string {
