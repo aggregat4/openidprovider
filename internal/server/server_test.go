@@ -316,7 +316,6 @@ func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 	go func() {
 		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
 	}()
-	//time.Sleep(5 * time.Second) // massive hack since there appears to be no way to know when the server is ready
 	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort))
 	return echoServer, controller
 }
