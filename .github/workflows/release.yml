@@ -1,0 +1,31 @@
+on:
+  release:
+    types: [created]
+
+name: Create and Upload Release Artifact
+
+jobs:
+  generate:
+    name: Create release-artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the release version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21.x'
+      - name: Build
+        run: scripts/build.sh
+      - name: Test
+        run: scripts/test.sh
+      - name: Package the Release Artifacts
+        run: tar -zcf openidprovider-${{ steps.get_version.outputs.VERSION }}-linux-x86.tar.gz -C bin createuser server
+      - name: Upload the Artifacts
+        uses: skx/github-action-publish-binaries@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: 'openidprovider-*'
