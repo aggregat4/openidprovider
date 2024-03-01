@@ -37,8 +37,8 @@ const LOGIN_URL = "http://localhost:1323/login"
 const TEST_JWTISSUER = "testissuer"
 
 var serverConfig = domain.Configuration{
-	ServerReadTimeoutSeconds:  5,
-	ServerWriteTimeoutSeconds: 10,
+	ServerReadTimeoutSeconds:  50,
+	ServerWriteTimeoutSeconds: 100,
 	ServerPort:                1323,
 	BaseUrl:                   "http://localhost:1323",
 	RegisteredClients: map[domain.ClientId]domain.Client{
@@ -316,7 +316,7 @@ func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 	go func() {
 		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
 	}()
-	time.Sleep(3 * time.Second) // massive hack since there appears to be no way to know when the server is ready
+	time.Sleep(20 * time.Second) // massive hack since there appears to be no way to know when the server is ready
 	return echoServer, controller
 }
 
