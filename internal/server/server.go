@@ -65,7 +65,7 @@ func InitServer(controller Controller) *echo.Echo {
 	// Added session middleware just so we can have persistence for CSRF tokens
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte(uuid.New().String()))))
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{Level: 5}))
-	// TODO: write test to verify whether we need to restrict the CSRF chek to POST on the login page?
+	// TODO: write test to verify whether we need to restrict the CSRF check to POST on the login page?
 	// Otherwise the alternative POST on authorize/ will not work
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLookup: "form:csrf_token",
