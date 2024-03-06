@@ -30,8 +30,6 @@ The implementation currently implements [OpenID Connect Core 1.0](https://openid
 
 ## TODO
 
-- Allow initialisation of an in memory sqlite for test purposes
-- Add utilities to add users to database for test purposes (we need them for the admin anyway)
 - Implement regular `code` cleanup (remove after expiry)
 - Add additional clains to the users, specifically a form of roles or groups so I can model things like `foobarservice_admin`
 - Support `prompt` with the value `none` in the authorization request by immediately returning an error (since we always reauthenticate, and in this case we shouldn't)
