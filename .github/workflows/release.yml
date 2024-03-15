@@ -22,7 +22,7 @@ jobs:
       - name: Test
         run: scripts/test.sh
       - name: Package the Release Artifacts
-        run: tar -zcf openidprovider-${{ env.RELEASE_VERSION }}-linux-x86.tar.gz -C bin createuser server
+        run: tar -zcf openidprovider-${{ env.RELEASE_VERSION }}-linux-x86.tar.gz -C bin createuser createkey server
       - name: Upload the Artifacts
         uses: skx/github-action-publish-binaries@master
         env:
