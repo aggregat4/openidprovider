@@ -18,6 +18,7 @@ type JwtConfiguration struct {
 }
 
 type Configuration struct {
+	DatabaseFilename          string
 	ServerReadTimeoutSeconds  int
 	ServerWriteTimeoutSeconds int
 	ServerPort                int

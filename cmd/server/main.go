@@ -18,23 +18,23 @@ import (
 )
 
 func main() {
-	const dbName = "openidprovider"
-
-	var store repository.Store
-	err := store.InitAndVerifyDb(repository.CreateFileDbUrl(dbName))
-	if err != nil {
-		log.Fatalf("Error initializing database: %s", err)
-	}
-	defer store.Close()
-
 	var configFileLocation string
 	flag.StringVar(&configFileLocation, "config", "", "The location of the configuration file if you do not want to default to the standard location")
 	flag.Parse()
 
 	defaultConfigLocation := configdir.LocalConfig("openidprovider") + "/openidprovider.json"
+	config := readConfig(lang.IfElse(configFileLocation == "", defaultConfigLocation, configFileLocation))
+
+	var store repository.Store
+	err := store.InitAndVerifyDb(repository.CreateFileDbUrl(config.DatabaseFilename))
+	if err != nil {
+		log.Fatalf("Error initializing database: %s", err)
+	}
+	defer store.Close()
+
 	server.RunServer(server.Controller{
 		Store:  &store,
-		Config: readConfig(lang.IfElse(configFileLocation == "", defaultConfigLocation, configFileLocation)),
+		Config: config,
 	})
 }
 
@@ -42,6 +42,10 @@ func readConfig(configFileLocation string) domain.Configuration {
 	var k = koanf.New(".")
 	if err := k.Load(file.Provider(configFileLocation), json.Parser()); err != nil {
 		log.Fatalf("error loading config: %v", err)
+	}
+	databaseFilename := k.String("databasefilename")
+	if databaseFilename == "" {
+		log.Fatalf("Database filename is required in the configuration")
 	}
 	serverReadTimeoutSeconds := k.Int("serverreadtimeoutseconds")
 	if serverReadTimeoutSeconds == 0 {
@@ -120,6 +124,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 	}
 	idTokenValidityMinutes := k.MustInt("jwt.idtokenvalidityminutes")
 	return domain.Configuration{
+		DatabaseFilename:          databaseFilename,
 		ServerReadTimeoutSeconds:  serverReadTimeoutSeconds,
 		ServerWriteTimeoutSeconds: serverWriteTimeoutSeconds,
 		ServerPort:                serverPort,
