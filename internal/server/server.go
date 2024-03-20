@@ -101,7 +101,7 @@ func (controller *Controller) jwks(c echo.Context) error {
 		Keys: make([]jose.JSONWebKey, 1),
 	}
 	jwks.Keys[0] = jose.JSONWebKey{
-		Key:       controller.Config.JwtConfig.PrivateKey.PublicKey,
+		Key:       controller.Config.JwtConfig.PublicKey,
 		KeyID:     "id-token-key",
 		Use:       "sig",
 		Algorithm: "RS256",
