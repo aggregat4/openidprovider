@@ -307,7 +307,7 @@ func (controller *Controller) login(c echo.Context) error {
 		return sendInternalError(c, err, fullRedirectUri, state)
 	}
 	if user == nil {
-		logger.Debug("User not found with username %s", username)
+		logger.Debug("User not found with username")
 		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
 		return sendOauthError(c, fullRedirectUri, "access_denied", "Invalid username or password", state)
 	}
