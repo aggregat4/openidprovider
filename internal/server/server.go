@@ -136,15 +136,25 @@ func (controller *Controller) openIdConfiguration(c echo.Context) error {
 // It use subtle.ConstantTimeCompare to prevent timing attacks.
 func (controller *Controller) basicAuthValidator(username, password string, c echo.Context) (bool, error) {
 	client, clientExists := controller.Config.RegisteredClients[username]
+	// apparently the go Oauth2 client library url escapes the username and password
+	// This seems weird, and they talk about it here: https://github.com/golang/oauth2/pull/476
+	decodedUsername, err := url.QueryUnescape(username)
+	if err != nil {
+		decodedUsername = ""
+	}
+	decodedPassword, err := url.QueryUnescape(password)
+	if err != nil {
+		decodedPassword = ""
+	}
 	if !clientExists {
 		// make sure we nevertheless compare the username and password to make timing attacks harder
-		subtle.ConstantTimeCompare([]byte(username), []byte("this is not a valid client id"))
-		subtle.ConstantTimeCompare([]byte(password), []byte("this is not a valid client secret"))
+		subtle.ConstantTimeCompare([]byte(decodedUsername), []byte("this is not a valid client id"))
+		subtle.ConstantTimeCompare([]byte(decodedPassword), []byte("this is not a valid client secret"))
 		return false, nil
 	}
 	c.Set("client_id", client.Id)
-	return subtle.ConstantTimeCompare([]byte(username), []byte(client.Id)) == 1 &&
-		subtle.ConstantTimeCompare([]byte(password), []byte(client.BasicAuthSecret)) == 1, nil
+	return subtle.ConstantTimeCompare([]byte(decodedUsername), []byte(client.Id)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(decodedPassword), []byte(client.BasicAuthSecret)) == 1, nil
 }
 
 // OIDC Token Endpoint is described in:
