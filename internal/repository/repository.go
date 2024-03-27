@@ -1,10 +1,10 @@
 package repository
 
 import (
-	"aggregat4/openidprovider/pkg/migrations"
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/aggregat4/go-baselib/migrations"
 	"time"
 )
 

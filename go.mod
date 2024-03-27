@@ -2,7 +2,8 @@ module aggregat4/openidprovider
 
 go 1.22.1
 
-require github.com/aggregat4/go-baselib v1.0.0
+require github.com/aggregat4/go-baselib v1.1.0
+
 //replace github.com/aggregat4/go-baselib => ../go-baselib
 
 require (
