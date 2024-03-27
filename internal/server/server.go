@@ -3,10 +3,10 @@ package server
 import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
-	"aggregat4/openidprovider/pkg/crypto"
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"github.com/aggregat4/go-baselib/crypto"
 	"html/template"
 	"io"
 	"log/slog"

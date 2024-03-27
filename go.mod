@@ -1,9 +1,12 @@
 module aggregat4/openidprovider
 
-go 1.21.6
+go 1.22.1
+
+require github.com/aggregat4/go-baselib v1.0.0
+//replace github.com/aggregat4/go-baselib => ../go-baselib
 
 require (
-	github.com/golang-jwt/jwt/v5 v5.2.0
+	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/gorilla/sessions v1.2.2
 	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
 	github.com/knadh/koanf/parsers/json v0.1.0
@@ -12,12 +15,11 @@ require (
 	github.com/labstack/echo-contrib v0.15.0
 	github.com/labstack/echo/v4 v4.11.4
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/crypto v0.19.0
 )
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.1
+	github.com/go-jose/go-jose/v3 v3.0.3
 	github.com/gorilla/context v1.1.2 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -32,6 +34,7 @@ require (
 	github.com/knadh/koanf/maps v0.1.1 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
+	golang.org/x/crypto v0.21.0 // indirect
 )
 
 require (
@@ -42,7 +45,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
-	golang.org/x/net v0.21.0 // indirect
-	golang.org/x/sys v0.17.0 // indirect
+	golang.org/x/net v0.22.0 // indirect
+	golang.org/x/sys v0.18.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 )

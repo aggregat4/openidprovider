@@ -4,9 +4,9 @@ import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
-	"aggregat4/openidprovider/pkg/crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"github.com/aggregat4/go-baselib/crypto"
 
 	"fmt"
 	"io"

@@ -4,9 +4,9 @@ import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
-	"aggregat4/openidprovider/pkg/crypto"
-	"aggregat4/openidprovider/pkg/lang"
 	"flag"
+	"github.com/aggregat4/go-baselib/crypto"
+	"github.com/aggregat4/go-baselib/lang"
 	"log"
 
 	"github.com/kirsle/configdir"
