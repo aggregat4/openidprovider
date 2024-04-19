@@ -71,10 +71,6 @@ func (store *Store) InitAndVerifyDb(dbUrl string) error {
 	return migrations.MigrateSchema(store.db, mymigrations)
 }
 
-func MigrateSchema(dB *sql.DB) {
-	panic("unimplemented")
-}
-
 func (store *Store) CreateUser(username, hashedPassword string) error {
 	rows, err := store.db.Query("SELECT password FROM users WHERE username = ?", username)
 	if err != nil {
