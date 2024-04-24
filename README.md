@@ -2,9 +2,7 @@
 
 This is a minimal OpenID Connect protocol implementation with a sqlite backing store for user accounts.
 
-This service acts as the OpenID Provider (OP) in the OpenID Connect protocol.
-
-The implementation currently implements [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html). Only the Authorization Code Flow is supported.
+This service acts as the OpenID Provider (OP) in the OpenID Connect protocol. It implements [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html). Only the Authorization Code Flow is supported.
 
 ## Limitations
 
@@ -30,9 +28,8 @@ The implementation currently implements [OpenID Connect Core 1.0](https://openid
 
 ## TODO
 
-- Extract the `pkg` code into two libraries for me to reuse (go-baselib and go-migrations) and push to github. Ostensibly I can use local versions of those libs by "replacing" them in the go.mod file of including projects
-- Implement regular `code` cleanup (remove after expiry)
 - Add additional claims to the users, specifically a form of roles or groups so I can model things like `foobarservice_admin`
+- Implement regular `code` cleanup (remove after expiry)
 - Support `prompt` with the value `none` in the authorization request by immediately returning an error (since we always reauthenticate, and in this case we shouldn't)
 - Support `nonce` in the authorization request (and all the way through ID token generation)
 - Go through all the security considerations of the OAuth 2 spec and verify whether additional measures are needed
