@@ -281,6 +281,8 @@ func createTestUser(t *testing.T, controller server.Controller) {
 
 // construct a test HTTP client with cookie support so we can transport the CSRF token
 // and suppressed redirects so we can assert against the location header
+// createTestHttpClient returns an HTTP client with cookie support and disabled redirects.
+// This is useful for testing scenarios where you need to assert against the location header.
 func createTestHttpClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
 	return &http.Client{
