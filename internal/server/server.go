@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
-	"github.com/aggregat4/go-baselib/crypto"
 	"html/template"
 	"io"
 	"log/slog"
@@ -16,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aggregat4/go-baselib/crypto"
 
 	"github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v5"
@@ -348,7 +349,7 @@ func (controller *Controller) login(c echo.Context) error {
 }
 
 func sendInternalError(c echo.Context, originalError error, fullRedirectUri *url.URL, state string) error {
-	logger.Error("Error processing request: ", originalError)
+	logger.Error("Error processing request", "error", originalError)
 	return sendOauthError(c, fullRedirectUri, "server_error", "Internal server error", state)
 }
 
