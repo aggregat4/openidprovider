@@ -16,6 +16,9 @@
       background-color: white;
       color: #333;
     }
+    main {
+      margin: auto;
+    }
     h1 {
       text-align: left;     
       letter-spacing: -1px;
@@ -42,20 +45,22 @@
   </style>
 </head>
 <body>
-  <h1>Login</h1>
-  <form action="/login" method="POST">
-    <label>Username
-      <input type="text" name="username" required autofocus>
-    </label>
-    <label>Password
-      <input type="password" name="password" required>
-    </label>
-    <button type="submit">Login</button>
-    <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
-    <input type="hidden" name="clientid" value="{{.ClientId}}">
-    <input type="hidden" name="redirecturi" value="{{.RedirectUri}}">
-    <input type="hidden" name="state" value="{{.State}}">
-  </form>  
+  <main>
+    <h1>Login</h1>
+    <form action="/login" method="POST">
+      <label>Username
+        <input type="text" name="username" required autofocus>
+      </label>
+      <label>Password
+        <input type="password" name="password" required>
+      </label>
+      <button type="submit">Login</button>
+      <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
+      <input type="hidden" name="clientid" value="{{.ClientId}}">
+      <input type="hidden" name="redirecturi" value="{{.RedirectUri}}">
+      <input type="hidden" name="state" value="{{.State}}">
+    </form>
+  </main>  
 </body>
 </html>
 {{end}}
