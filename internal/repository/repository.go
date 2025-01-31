@@ -4,8 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/aggregat4/go-baselib/migrations"
 	"time"
+
+	"github.com/aggregat4/go-baselib/migrations"
 )
 
 var mymigrations = []migrations.Migration{
@@ -33,6 +34,22 @@ var mymigrations = []migrations.Migration{
 		);
 		`,
 	},
+	{
+		SequenceId: 2,
+		Sql: `
+		-- Disable foreign keys temporarily for the migration
+		PRAGMA foreign_keys = OFF;
+
+		-- Rename columns in users table
+		ALTER TABLE users RENAME COLUMN username TO email;
+
+		-- Rename columns in codes table
+		ALTER TABLE codes RENAME COLUMN username TO email;
+
+		-- Re-enable foreign keys
+		PRAGMA foreign_keys = ON;
+		`,
+	},
 }
 
 type Store struct {
@@ -41,14 +58,14 @@ type Store struct {
 
 type User struct {
 	Id          int64
-	Username    string
+	Email       string
 	Password    string
 	LastUpdated int64
 }
 
 type Code struct {
 	Code        string
-	UserName    string
+	Email       string
 	ClientId    string
 	RedirectUri string
 	Created     int64
@@ -71,8 +88,8 @@ func (store *Store) InitAndVerifyDb(dbUrl string) error {
 	return migrations.MigrateSchema(store.db, mymigrations)
 }
 
-func (store *Store) CreateUser(username, hashedPassword string) error {
-	rows, err := store.db.Query("SELECT password FROM users WHERE username = ?", username)
+func (store *Store) CreateUser(email, hashedPassword string) error {
+	rows, err := store.db.Query("SELECT password FROM users WHERE email = ?", email)
 	if err != nil {
 		return err
 	}
@@ -90,8 +107,8 @@ func (store *Store) CreateUser(username, hashedPassword string) error {
 			return errors.New("the database already has this account but with a different password")
 		}
 	} else {
-		_, err := store.db.Exec("INSERT INTO users (username, password, last_updated) VALUES (?, ?, ?)",
-			username, hashedPassword, time.Now().Unix())
+		_, err := store.db.Exec("INSERT INTO users (email, password, last_updated) VALUES (?, ?, ?)",
+			email, hashedPassword, time.Now().Unix())
 		if err != nil {
 			return err
 		}
@@ -100,21 +117,21 @@ func (store *Store) CreateUser(username, hashedPassword string) error {
 }
 
 func (store *Store) FindCode(code string) (*Code, error) {
-	rows, err := store.db.Query("SELECT username, client_id, redirect_uri, created FROM codes WHERE code = ?", code)
+	rows, err := store.db.Query("SELECT email, client_id, redirect_uri, created FROM codes WHERE code = ?", code)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	if rows.Next() {
-		var userName string
+		var email string
 		var clientId string
 		var redirectUri string
 		var created int64
-		err = rows.Scan(&userName, &clientId, &redirectUri, &created)
+		err = rows.Scan(&email, &clientId, &redirectUri, &created)
 		if err != nil {
 			return nil, err
 		}
-		return &Code{code, userName, clientId, redirectUri, created}, nil
+		return &Code{code, email, clientId, redirectUri, created}, nil
 	}
 	return nil, nil
 }
@@ -125,26 +142,26 @@ func (store *Store) DeleteCode(code string) error {
 }
 
 func (store *Store) SaveCode(code Code) error {
-	_, err := store.db.Exec("INSERT INTO codes (code, username, client_id, redirect_uri, created) VALUES (?, ?, ?, ?, ?)", code.Code, code.UserName, code.ClientId, code.RedirectUri, code.Created)
+	_, err := store.db.Exec("INSERT INTO codes (code, email, client_id, redirect_uri, created) VALUES (?, ?, ?, ?, ?)", code.Code, code.Email, code.ClientId, code.RedirectUri, code.Created)
 	return err
 }
 
-func (store *Store) FindUser(username string) (*User, error) {
-	rows, err := store.db.Query("SELECT id, username, password, last_updated FROM users WHERE username = ?", username)
+func (store *Store) FindUser(email string) (*User, error) {
+	rows, err := store.db.Query("SELECT id, email, password, last_updated FROM users WHERE email = ?", email)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	if rows.Next() {
 		var id int64
-		var userName string
+		var userEmail string
 		var password string
 		var lastUpdated int64
-		err = rows.Scan(&id, &userName, &password, &lastUpdated)
+		err = rows.Scan(&id, &userEmail, &password, &lastUpdated)
 		if err != nil {
 			return nil, err
 		}
-		return &User{id, username, password, lastUpdated}, nil
+		return &User{id, email, password, lastUpdated}, nil
 	}
 	return nil, nil
 }

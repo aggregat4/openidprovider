@@ -213,7 +213,7 @@ func (controller *Controller) token(c echo.Context) error {
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", ContentTypeJson)
 	c.Response().Header().Set("Cache-Control", "no-store")
-	idToken, err := GenerateIdToken(controller.Config.JwtConfig, clientId, existingCode.UserName)
+	idToken, err := GenerateIdToken(controller.Config.JwtConfig, clientId, existingCode.Email)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
@@ -330,7 +330,7 @@ func (controller *Controller) login(c echo.Context) error {
 		// See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
 		// See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
 		code := uuid.New().String()
-		err := controller.Store.SaveCode(repository.Code{Code: code, UserName: user.Username, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
+		err := controller.Store.SaveCode(repository.Code{Code: code, Email: user.Email, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
 		if err != nil {
 			return sendInternalError(c, err, fullRedirectUri, state)
 		}
