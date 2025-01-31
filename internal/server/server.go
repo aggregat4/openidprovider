@@ -78,7 +78,7 @@ func InitServer(controller Controller) *echo.Echo {
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLookup: "form:csrf_token",
 		Skipper: func(c echo.Context) bool {
-			return c.Path() != "/login" && c.Path() != "/authorize" && c.Path() != "/register"
+			return c.Path() != "/login" && c.Path() != "/authorize" && c.Path() != "/register" && c.Path() != "/verify"
 		},
 	}))
 	e.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
@@ -398,7 +398,9 @@ type RegisterPage struct {
 }
 
 type VerifyPage struct {
-	Error string
+	CsrfToken string
+	Error     string
+	Success   string
 }
 
 func (controller *Controller) showRegisterPage(c echo.Context) error {
@@ -500,43 +502,59 @@ func (controller *Controller) verify(c echo.Context) error {
 	token := c.QueryParam("token")
 	if token == "" {
 		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
-			Error: "Invalid verification link",
+			CsrfToken: c.Get("csrf").(string),
+			Error:     "Invalid verification link",
 		})
 	}
 
 	// Find and validate token
 	verificationToken, err := controller.Store.FindVerificationToken(token)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Internal error")
+		return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
+			CsrfToken: c.Get("csrf").(string),
+			Error:     "Internal error",
+		})
 	}
 
 	if verificationToken == nil {
 		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
-			Error: "Invalid or expired verification link",
+			CsrfToken: c.Get("csrf").(string),
+			Error:     "Invalid or expired verification link",
 		})
 	}
 
 	if verificationToken.Expires < time.Now().Unix() {
 		controller.Store.DeleteVerificationToken(token)
 		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
-			Error: "Verification link has expired",
+			CsrfToken: c.Get("csrf").(string),
+			Error:     "Verification link has expired",
 		})
 	}
 
 	// Verify user
 	err = controller.Store.VerifyUser(verificationToken.Email)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Internal error")
+		return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
+			CsrfToken: c.Get("csrf").(string),
+			Error:     "Internal error",
+		})
 	}
 
 	// Delete used token
 	err = controller.Store.DeleteVerificationToken(token)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Internal error")
+		return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
+			CsrfToken: c.Get("csrf").(string),
+			Error:     "Internal error",
+		})
 	}
 
-	// Redirect to login page
-	return c.Redirect(http.StatusSeeOther, "/login")
+	// Show success message
+	return c.Render(http.StatusOK, "verify", VerifyPage{
+		CsrfToken: c.Get("csrf").(string),
+		Error:     "",
+		Success:   "Verification successful! You can now log in.",
+	})
 }
 
 func (controller *Controller) showLoginPage(c echo.Context) error {
