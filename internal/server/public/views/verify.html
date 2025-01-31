@@ -1,0 +1,86 @@
+{{define "verify"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Email</title>
+  <style>
+    :root {
+      --color-primary: #2563eb;
+      --color-primary-hover: #1d4ed8;
+      --color-text: #333;
+      --color-background: white;
+      --color-error: #dc2626;
+      --color-success: #16a34a;
+    }
+    body {
+      font-family: sans-serif;
+      box-sizing: border-box;
+      margin: 0;
+      line-height: 1.5;
+      background-color: var(--color-background);
+      color: var(--color-text);
+    }
+    main {
+      margin: auto;
+      max-width: 600px;
+      padding: 2rem 1rem;
+      text-align: center;
+    }
+    h1 {
+      letter-spacing: -1px;
+      font-weight: normal;
+      font-size: 2rem;
+      margin: 1rem 0;
+    }
+    .message {
+      margin: 2rem 0;
+      padding: 1rem;
+      border-radius: 4px;
+    }
+    .error {
+      background-color: #fee2e2;
+      color: var(--color-error);
+      border: 1px solid #fecaca;
+    }
+    .success {
+      background-color: #dcfce7;
+      color: var(--color-success);
+      border: 1px solid #bbf7d0;
+    }
+    .links {
+      margin-top: 2rem;
+    }
+    .links a {
+      color: var(--color-primary);
+      text-decoration: none;
+    }
+    .links a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Email Verification</h1>
+    {{if .Error}}
+    <div class="message error">
+      {{.Error}}
+    </div>
+    <div class="links">
+      <a href="/register">Return to Registration</a>
+    </div>
+    {{else}}
+    <div class="message success">
+      Your email has been verified successfully! You can now log in to your account.
+    </div>
+    <div class="links">
+      <a href="/login">Proceed to Login</a>
+    </div>
+    {{end}}
+  </main>
+</body>
+</html>
+{{end}} 

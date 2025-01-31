@@ -16,6 +16,12 @@
       background-color: white;
       color: #333;
     }
+    :root {
+      --color-primary: #2563eb;
+      --color-primary-hover: #1d4ed8;
+      --color-text: #333;
+      --color-background: white;
+    }
     main {
       margin: auto;
     }
@@ -36,11 +42,36 @@
       width: 40ch;
       display: block;
       box-sizing: border-box;
+      padding: 0.5rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
     }
     button {
       box-sizing: border-box;
       width: 12ch;
       margin-top: 0.5rem;
+      background-color: var(--color-primary);
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: var(--color-primary-hover);
+    }
+    .links {
+      margin: 1rem;
+      display: flex;
+      gap: 1rem;
+    }
+    .links a {
+      color: var(--color-primary);
+      text-decoration: none;
+    }
+    .links a:hover {
+      text-decoration: underline;
     }
   </style>
 </head>
@@ -60,6 +91,9 @@
       <input type="hidden" name="redirecturi" value="{{.RedirectUri}}">
       <input type="hidden" name="state" value="{{.State}}">
     </form>
+    <div class="links">
+      <a href="/register">Register new account</a>
+    </div>
   </main>  
 </body>
 </html>

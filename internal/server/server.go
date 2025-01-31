@@ -3,9 +3,11 @@ package server
 import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
+	"aggregat4/openidprovider/pkg/email"
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io"
 	"log/slog"
@@ -35,8 +37,9 @@ var viewTemplates embed.FS
 const ContentTypeJson = "application/json;charset=UTF-8"
 
 type Controller struct {
-	Store  *repository.Store
-	Config domain.Configuration
+	Store        *repository.Store
+	Config       domain.Configuration
+	EmailService *email.EmailService
 }
 
 func RunServer(controller Controller) {
@@ -91,6 +94,9 @@ func InitServer(controller Controller) *echo.Echo {
 	// authorization request, so no GET on /login
 	e.POST("/login", controller.login)
 	e.POST("/token", controller.token)
+	e.GET("/register", controller.showRegisterPage)
+	e.POST("/register", controller.register)
+	e.GET("/verify", controller.verify)
 	return e
 }
 
@@ -379,4 +385,149 @@ func contains(list []string, item string) bool {
 		}
 	}
 	return false
+}
+
+type RegisterPage struct {
+	CsrfToken string
+	Email     string
+	Error     string
+	Success   string
+}
+
+type VerifyPage struct {
+	Error string
+}
+
+func (controller *Controller) showRegisterPage(c echo.Context) error {
+	return c.Render(http.StatusOK, "register", RegisterPage{
+		CsrfToken: c.Get("csrf").(string),
+	})
+}
+
+func (controller *Controller) register(c echo.Context) error {
+	email := c.FormValue("email")
+	password := c.FormValue("password")
+	confirmPassword := c.FormValue("confirmPassword")
+
+	// Basic validation
+	if email == "" || password == "" || confirmPassword == "" {
+		return c.Render(http.StatusBadRequest, "register", RegisterPage{
+			CsrfToken: c.Get("csrf").(string),
+			Email:     email,
+			Error:     "All fields are required",
+		})
+	}
+
+	if password != confirmPassword {
+		return c.Render(http.StatusBadRequest, "register", RegisterPage{
+			CsrfToken: c.Get("csrf").(string),
+			Email:     email,
+			Error:     "Passwords do not match",
+		})
+	}
+
+	// Check if user already exists and is verified
+	existingUser, err := controller.Store.FindUser(email)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	if existingUser != nil {
+		isVerified, err := controller.Store.IsUserVerified(email)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, "Internal error")
+		}
+		if isVerified {
+			return c.Render(http.StatusBadRequest, "register", RegisterPage{
+				CsrfToken: c.Get("csrf").(string),
+				Email:     email,
+				Error:     "An account with this email already exists",
+			})
+		}
+	}
+
+	// Hash password
+	hashedPassword, err := crypto.HashPassword(password)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	// Create user
+	err = controller.Store.CreateUser(email, hashedPassword)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	// Generate verification token
+	token := uuid.New().String()
+	verificationToken := repository.VerificationToken{
+		Token:   token,
+		Email:   email,
+		Type:    "registration",
+		Created: time.Now().Unix(),
+		Expires: time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	err = controller.Store.CreateVerificationToken(verificationToken)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	// Send verification email
+	verificationLink := fmt.Sprintf("%s/verify?token=%s", controller.Config.BaseUrl, token)
+	err = controller.EmailService.SendVerificationEmail(email, verificationLink)
+	if err != nil {
+		logger.Error("Failed to send verification email", "error", err)
+		// Continue with the flow even if email sending fails
+	}
+
+	// Show success message
+	return c.Render(http.StatusOK, "register", RegisterPage{
+		CsrfToken: c.Get("csrf").(string),
+		Email:     email,
+		Success:   "Registration successful! Please check your email to verify your account.",
+	})
+}
+
+func (controller *Controller) verify(c echo.Context) error {
+	token := c.QueryParam("token")
+	if token == "" {
+		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
+			Error: "Invalid verification link",
+		})
+	}
+
+	// Find and validate token
+	verificationToken, err := controller.Store.FindVerificationToken(token)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	if verificationToken == nil {
+		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
+			Error: "Invalid or expired verification link",
+		})
+	}
+
+	if verificationToken.Expires < time.Now().Unix() {
+		controller.Store.DeleteVerificationToken(token)
+		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
+			Error: "Verification link has expired",
+		})
+	}
+
+	// Verify user
+	err = controller.Store.VerifyUser(verificationToken.Email)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	// Delete used token
+	err = controller.Store.DeleteVerificationToken(token)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	// Redirect to login page
+	return c.Redirect(http.StatusSeeOther, "/login")
 }

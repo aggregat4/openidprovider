@@ -25,6 +25,13 @@ type Configuration struct {
 	BaseUrl                   string
 	RegisteredClients         map[ClientId]Client
 	JwtConfig                 JwtConfiguration
+	SendgridConfig            SendgridConfiguration
+}
+
+type SendgridConfiguration struct {
+	APIKey    string
+	FromEmail string
+	FromName  string
 }
 
 // OpenIdConfiguration This represents the document served at /.well-known/openid-configuration

@@ -50,6 +50,25 @@ var mymigrations = []migrations.Migration{
 		PRAGMA foreign_keys = ON;
 		`,
 	},
+	{
+		SequenceId: 3,
+		Sql: `
+		-- Add verification status to users table and create verification tokens table
+		ALTER TABLE users ADD COLUMN is_verified INTEGER NOT NULL DEFAULT 0;
+
+		CREATE TABLE IF NOT EXISTS verification_tokens (
+			token TEXT NOT NULL PRIMARY KEY,
+			email TEXT NOT NULL,
+			type TEXT NOT NULL, -- 'registration', 'password_reset', 'account_deletion'
+			created INTEGER NOT NULL,
+			expires INTEGER NOT NULL,
+			FOREIGN KEY (email) REFERENCES users(email)
+		);
+
+		-- Index for cleanup of expired tokens
+		CREATE INDEX idx_verification_tokens_expires ON verification_tokens(expires);
+		`,
+	},
 }
 
 type Store struct {
@@ -69,6 +88,14 @@ type Code struct {
 	ClientId    string
 	RedirectUri string
 	Created     int64
+}
+
+type VerificationToken struct {
+	Token   string
+	Email   string
+	Type    string
+	Created int64
+	Expires int64
 }
 
 func CreateFileDbUrl(dbName string) string {
@@ -164,6 +191,68 @@ func (store *Store) FindUser(email string) (*User, error) {
 		return &User{id, email, password, lastUpdated}, nil
 	}
 	return nil, nil
+}
+
+func (store *Store) CreateVerificationToken(token VerificationToken) error {
+	_, err := store.db.Exec(
+		"INSERT INTO verification_tokens (token, email, type, created, expires) VALUES (?, ?, ?, ?, ?)",
+		token.Token, token.Email, token.Type, token.Created, token.Expires,
+	)
+	return err
+}
+
+func (store *Store) FindVerificationToken(token string) (*VerificationToken, error) {
+	rows, err := store.db.Query(
+		"SELECT token, email, type, created, expires FROM verification_tokens WHERE token = ?",
+		token,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var vt VerificationToken
+		err = rows.Scan(&vt.Token, &vt.Email, &vt.Type, &vt.Created, &vt.Expires)
+		if err != nil {
+			return nil, err
+		}
+		return &vt, nil
+	}
+	return nil, nil
+}
+
+func (store *Store) DeleteVerificationToken(token string) error {
+	_, err := store.db.Exec("DELETE FROM verification_tokens WHERE token = ?", token)
+	return err
+}
+
+func (store *Store) DeleteExpiredVerificationTokens() error {
+	_, err := store.db.Exec("DELETE FROM verification_tokens WHERE expires < ?", time.Now().Unix())
+	return err
+}
+
+func (store *Store) VerifyUser(email string) error {
+	_, err := store.db.Exec("UPDATE users SET is_verified = 1 WHERE email = ?", email)
+	return err
+}
+
+func (store *Store) IsUserVerified(email string) (bool, error) {
+	rows, err := store.db.Query("SELECT is_verified FROM users WHERE email = ?", email)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var isVerified int
+		err = rows.Scan(&isVerified)
+		if err != nil {
+			return false, err
+		}
+		return isVerified == 1, nil
+	}
+	return false, nil
 }
 
 func (store *Store) Close() error {

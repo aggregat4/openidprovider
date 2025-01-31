@@ -6,6 +6,7 @@ import (
 	"aggregat4/openidprovider/internal/server"
 	"crypto/rand"
 	"crypto/rsa"
+
 	"github.com/aggregat4/go-baselib/crypto"
 
 	"fmt"
@@ -313,7 +314,11 @@ func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 	if err != nil {
 		panic(err)
 	}
-	controller := server.Controller{&store, serverConfig}
+	controller := server.Controller{
+		Store:        &store,
+		Config:       serverConfig,
+		EmailService: nil, // We don't need email service for these tests
+	}
 	echoServer := server.InitServer(controller)
 	go func() {
 		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
