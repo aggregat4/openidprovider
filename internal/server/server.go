@@ -31,8 +31,8 @@ import (
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-//go:embed public/views/*.html
-var viewTemplates embed.FS
+//go:embed public/views/*.html public/styles/*.css
+var staticFiles embed.FS
 
 const ContentTypeJson = "application/json;charset=UTF-8"
 
@@ -55,9 +55,13 @@ func InitServer(controller Controller) *echo.Echo {
 	e.Server.WriteTimeout = time.Duration(controller.Config.ServerWriteTimeoutSeconds) * time.Second
 
 	t := &Template{
-		templates: template.Must(template.New("").ParseFS(viewTemplates, "public/views/*.html")),
+		templates: template.Must(template.New("").ParseFS(staticFiles, "public/views/*.html")),
 	}
 	e.Renderer = t
+
+	// Serve static files
+	staticHandler := echo.WrapHandler(http.FileServer(http.FS(staticFiles)))
+	e.GET("/public/*", staticHandler)
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
