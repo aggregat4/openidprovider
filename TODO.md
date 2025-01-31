@@ -3,9 +3,11 @@
 ## Self-Registration
 
 ### Allow **registration**
-  * add register link to registration page 
-  * allow specifying email and password (2 times)
-  * registering triggers a queued verification email
+  * add register link to login page 
+  * add a regsitration page
+    * allow specifying email and password (2 times) on that page
+    * registering triggers a queued verification email
+      * send the mail using Sendgrid
   * when a valid verification code is provided the user is registered and redirected to the login page
   * a cleanup job must be run to remove unverified users after a certain amount of time
 
