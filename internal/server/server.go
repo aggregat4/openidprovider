@@ -74,7 +74,7 @@ func InitServer(controller Controller) *echo.Echo {
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLookup: "form:csrf_token",
 		Skipper: func(c echo.Context) bool {
-			return c.Path() != "/login" && c.Path() != "/authorize"
+			return c.Path() != "/login" && c.Path() != "/authorize" && c.Path() != "/register"
 		},
 	}))
 	e.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
@@ -90,8 +90,7 @@ func InitServer(controller Controller) *echo.Echo {
 
 	e.GET("/authorize", controller.authorize)
 	e.POST("/authorize", controller.authorize)
-	// We don't need to allow showing the login page directly, it will only be used as a response to an
-	// authorization request, so no GET on /login
+	e.GET("/login", controller.showLoginPage)
 	e.POST("/login", controller.login)
 	e.POST("/token", controller.token)
 	e.GET("/register", controller.showRegisterPage)
@@ -127,10 +126,9 @@ func (controller *Controller) jwks(c echo.Context) error {
 func (controller *Controller) openIdConfiguration(c echo.Context) error {
 	c.Response().Header().Set("Content-Type", ContentTypeJson)
 	return c.JSON(http.StatusOK, domain.OpenIdConfiguration{
-		Issuer:                controller.Config.BaseUrl,
-		AuthorizationEndpoint: controller.Config.BaseUrl + "/authorize",
-		TokenEndpoint:         controller.Config.BaseUrl + "/token",
-		// UserInfoEndpoint: controller.Config.BaseUrl + "/userinfo",
+		Issuer:                           controller.Config.BaseUrl,
+		AuthorizationEndpoint:            controller.Config.BaseUrl + "/authorize",
+		TokenEndpoint:                    controller.Config.BaseUrl + "/token",
 		JwksUri:                          controller.Config.BaseUrl + "/.well-known/jwks.json",
 		ResponseTypesSupported:           []string{"code", "id_token"},
 		SubjectTypesSupported:            []string{"public"},
@@ -252,27 +250,28 @@ func (controller *Controller) authorize(c echo.Context) error {
 	authReqClientId := getParam(c, "client_id")
 	authReqRedirectUri := getParam(c, "redirect_uri")
 	authReqState := getParam(c, "state")
+
 	// Do basic validation whether required parameters are present first and respond with bad request if not
 	if len(authReqScopes) == 0 || !contains(authReqScopes, "openid") || authReqResponseType != "code" || authReqClientId == "" || authReqRedirectUri == "" {
 		return c.String(http.StatusBadRequest, "Missing required parameters")
 	}
-	// Validate the client and redirect URI as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1 and respond if an error
-	// Validate that the client exists
+
+	// Validate the client and redirect URI
 	client, clientExists := controller.Config.RegisteredClients[authReqClientId]
 	if !clientExists {
 		return c.String(http.StatusBadRequest, "Client does not exist")
 	}
-	// Validate that the redirect URI is registered for the client
 	if !contains(client.RedirectUris, authReqRedirectUri) {
 		return c.String(http.StatusBadRequest, "Redirect URI is not registered for client")
 	}
-	// All is well, show login page
-	c.Response().Header().Set("Cache-Control", "no-store")
-	return c.Render(http.StatusOK, "login", LoginPage{
-		CsrfToken:   c.Get("csrf").(string),
-		ClientId:    authReqClientId,
-		RedirectUri: authReqRedirectUri,
-		State:       authReqState})
+
+	// All is well, redirect to login page with parameters
+	loginUrl := fmt.Sprintf("/login?client_id=%s&redirect_uri=%s&state=%s",
+		url.QueryEscape(authReqClientId),
+		url.QueryEscape(authReqRedirectUri),
+		url.QueryEscape(authReqState))
+
+	return c.Redirect(http.StatusFound, loginUrl)
 }
 
 func getParam(c echo.Context, paramName string) string {
@@ -399,8 +398,12 @@ type VerifyPage struct {
 }
 
 func (controller *Controller) showRegisterPage(c echo.Context) error {
+	csrfToken := c.Get("csrf")
+	if csrfToken == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "CSRF token not found")
+	}
 	return c.Render(http.StatusOK, "register", RegisterPage{
-		CsrfToken: c.Get("csrf").(string),
+		CsrfToken: csrfToken.(string),
 	})
 }
 
@@ -530,4 +533,17 @@ func (controller *Controller) verify(c echo.Context) error {
 
 	// Redirect to login page
 	return c.Redirect(http.StatusSeeOther, "/login")
+}
+
+func (controller *Controller) showLoginPage(c echo.Context) error {
+	csrfToken := c.Get("csrf")
+	if csrfToken == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "CSRF token not found")
+	}
+	return c.Render(http.StatusOK, "login", LoginPage{
+		CsrfToken:   csrfToken.(string),
+		ClientId:    c.QueryParam("client_id"),
+		RedirectUri: c.QueryParam("redirect_uri"),
+		State:       c.QueryParam("state"),
+	})
 }
