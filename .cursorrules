@@ -1,0 +1,2 @@
+Try to use custom properties in css for colors and other design tokens that are reused.
+Use CSS nesting when writing styles.
