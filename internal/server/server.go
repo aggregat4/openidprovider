@@ -87,12 +87,17 @@ func InitServer(controller Controller) *echo.Echo {
 
 	e.GET("/authorize", controller.authorize)
 	e.POST("/authorize", controller.authorize)
+
 	e.GET("/login", controller.showLoginPage)
 	e.POST("/login", controller.login)
+
 	e.POST("/token", controller.token)
+
 	e.GET("/register", controller.showRegisterPage)
 	e.POST("/register", controller.register)
-	e.GET("/verify", controller.verify)
+
+	e.GET("/verify", controller.showVerificationPage)
+	e.POST("/verify", controller.verify)
 	return e
 }
 
@@ -323,6 +328,11 @@ func (controller *Controller) login(c echo.Context) error {
 		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
 		return sendOauthError(c, fullRedirectUri, "access_denied", "Invalid username or password", state)
 	}
+	if !user.Verified {
+		logger.Debug("User not verified")
+		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
+		return sendOauthError(c, fullRedirectUri, "access_denied", "User not verified", state)
+	}
 	logger.Info("login request user found")
 	if crypto.CheckPasswordHash(password, user.Password) {
 		// See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
@@ -389,6 +399,7 @@ type RegisterPage struct {
 }
 
 type VerifyPage struct {
+	Code    string
 	Error   string
 	Success string
 }
@@ -482,13 +493,17 @@ func (controller *Controller) register(c echo.Context) error {
 	})
 }
 
-func (controller *Controller) verify(c echo.Context) error {
+func (controller *Controller) showVerificationPage(c echo.Context) error {
 	token := c.QueryParam("token")
-	if token == "" {
-		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
-			Error: "Invalid or missing verification code",
-		})
-	}
+	return c.Render(http.StatusBadRequest, "verify", VerifyPage{
+		Code:  token,
+		Error: "Invalid or missing verification code",
+	})
+}
+
+func (controller *Controller) verify(c echo.Context) error {
+	// get the token from the submitted form parameters
+	token := c.FormValue("code")
 
 	// Find and validate token
 	verificationToken, err := controller.Store.FindVerificationToken(token)
@@ -500,7 +515,7 @@ func (controller *Controller) verify(c echo.Context) error {
 
 	if verificationToken == nil {
 		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
-			Error: "Invalid or expired verification link",
+			Error: "Invalid or expired verification code",
 		})
 	}
 
