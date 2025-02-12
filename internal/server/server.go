@@ -71,16 +71,9 @@ func InitServer(controller Controller) *echo.Echo {
 	//	logger.Info("Response: %s", "responsebody", string(resBody))
 	//}))
 	// Added session middleware just so we can have persistence for CSRF tokens
+	// TODO: Switched to using origin checking for CSRF protection, see if we still need this
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte(uuid.New().String()))))
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{Level: 5}))
-	// TODO: write test to verify whether we need to restrict the CSRF check to POST on the login page?
-	// Otherwise the alternative POST on authorize/ will not work
-	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
-		TokenLookup: "form:csrf_token",
-		Skipper: func(c echo.Context) bool {
-			return c.Path() != "/login" && c.Path() != "/authorize" && c.Path() != "/register" && c.Path() != "/verify"
-		},
-	}))
 	e.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
 		// we only require basic auth for the token endpoint
 		Skipper: func(c echo.Context) bool {
@@ -287,7 +280,6 @@ func getParam(c echo.Context, paramName string) string {
 }
 
 type LoginPage struct {
-	CsrfToken   string
 	ClientId    string
 	RedirectUri string
 	State       string
@@ -391,25 +383,21 @@ func contains(list []string, item string) bool {
 }
 
 type RegisterPage struct {
-	CsrfToken string
-	Email     string
-	Error     string
-	Success   string
+	Email   string
+	Error   string
+	Success string
 }
 
 type VerifyPage struct {
-	CsrfToken string
-	Error     string
-	Success   string
+	Error   string
+	Success string
 }
 
 func (controller *Controller) showRegisterPage(c echo.Context) error {
-	csrfToken := c.Get("csrf")
-	if csrfToken == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "CSRF token not found")
-	}
 	return c.Render(http.StatusOK, "register", RegisterPage{
-		CsrfToken: csrfToken.(string),
+		Email:   c.FormValue("email"),
+		Error:   "",
+		Success: "",
 	})
 }
 
@@ -421,17 +409,15 @@ func (controller *Controller) register(c echo.Context) error {
 	// Basic validation
 	if email == "" || password == "" || confirmPassword == "" {
 		return c.Render(http.StatusBadRequest, "register", RegisterPage{
-			CsrfToken: c.Get("csrf").(string),
-			Email:     email,
-			Error:     "All fields are required",
+			Email: email,
+			Error: "All fields are required",
 		})
 	}
 
 	if password != confirmPassword {
 		return c.Render(http.StatusBadRequest, "register", RegisterPage{
-			CsrfToken: c.Get("csrf").(string),
-			Email:     email,
-			Error:     "Passwords do not match",
+			Email: email,
+			Error: "Passwords do not match",
 		})
 	}
 
@@ -448,9 +434,8 @@ func (controller *Controller) register(c echo.Context) error {
 		}
 		if isVerified {
 			return c.Render(http.StatusBadRequest, "register", RegisterPage{
-				CsrfToken: c.Get("csrf").(string),
-				Email:     email,
-				Error:     "An account with this email already exists",
+				Email: email,
+				Error: "An account with this email already exists",
 			})
 		}
 	}
@@ -492,9 +477,8 @@ func (controller *Controller) register(c echo.Context) error {
 
 	// Show success message
 	return c.Render(http.StatusOK, "register", RegisterPage{
-		CsrfToken: c.Get("csrf").(string),
-		Email:     email,
-		Success:   "Registration successful! Please check your email to verify your account.",
+		Email:   email,
+		Success: "Registration successful! Please check your email to verify your account.",
 	})
 }
 
@@ -502,8 +486,7 @@ func (controller *Controller) verify(c echo.Context) error {
 	token := c.QueryParam("token")
 	if token == "" {
 		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
-			CsrfToken: c.Get("csrf").(string),
-			Error:     "Invalid verification link",
+			Error: "Invalid or missing verification code",
 		})
 	}
 
@@ -511,23 +494,25 @@ func (controller *Controller) verify(c echo.Context) error {
 	verificationToken, err := controller.Store.FindVerificationToken(token)
 	if err != nil {
 		return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
-			CsrfToken: c.Get("csrf").(string),
-			Error:     "Internal error",
+			Error: "Internal error",
 		})
 	}
 
 	if verificationToken == nil {
 		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
-			CsrfToken: c.Get("csrf").(string),
-			Error:     "Invalid or expired verification link",
+			Error: "Invalid or expired verification link",
 		})
 	}
 
 	if verificationToken.Expires < time.Now().Unix() {
-		controller.Store.DeleteVerificationToken(token)
+		err := controller.Store.DeleteVerificationToken(token)
+		if err != nil {
+			return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
+				Error: "Internal error",
+			})
+		}
 		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
-			CsrfToken: c.Get("csrf").(string),
-			Error:     "Verification link has expired",
+			Error: "Verification link has expired",
 		})
 	}
 
@@ -535,8 +520,7 @@ func (controller *Controller) verify(c echo.Context) error {
 	err = controller.Store.VerifyUser(verificationToken.Email)
 	if err != nil {
 		return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
-			CsrfToken: c.Get("csrf").(string),
-			Error:     "Internal error",
+			Error: "Internal error",
 		})
 	}
 
@@ -544,26 +528,19 @@ func (controller *Controller) verify(c echo.Context) error {
 	err = controller.Store.DeleteVerificationToken(token)
 	if err != nil {
 		return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
-			CsrfToken: c.Get("csrf").(string),
-			Error:     "Internal error",
+			Error: "Internal error",
 		})
 	}
 
 	// Show success message
 	return c.Render(http.StatusOK, "verify", VerifyPage{
-		CsrfToken: c.Get("csrf").(string),
-		Error:     "",
-		Success:   "Verification successful! You can now log in.",
+		Error:   "",
+		Success: "Verification successful! You can now log in.",
 	})
 }
 
 func (controller *Controller) showLoginPage(c echo.Context) error {
-	csrfToken := c.Get("csrf")
-	if csrfToken == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "CSRF token not found")
-	}
 	return c.Render(http.StatusOK, "login", LoginPage{
-		CsrfToken:   csrfToken.(string),
 		ClientId:    c.QueryParam("client_id"),
 		RedirectUri: c.QueryParam("redirect_uri"),
 		State:       c.QueryParam("state"),
