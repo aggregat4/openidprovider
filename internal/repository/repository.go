@@ -80,6 +80,7 @@ type User struct {
 	Email       string
 	Password    string
 	LastUpdated int64
+	Verified    bool
 }
 
 type Code struct {
@@ -174,7 +175,7 @@ func (store *Store) SaveCode(code Code) error {
 }
 
 func (store *Store) FindUser(email string) (*User, error) {
-	rows, err := store.db.Query("SELECT id, email, password, last_updated FROM users WHERE email = ?", email)
+	rows, err := store.db.Query("SELECT id, email, password, last_updated, is_verified FROM users WHERE email = ?", email)
 	if err != nil {
 		return nil, err
 	}
@@ -184,11 +185,12 @@ func (store *Store) FindUser(email string) (*User, error) {
 		var userEmail string
 		var password string
 		var lastUpdated int64
-		err = rows.Scan(&id, &userEmail, &password, &lastUpdated)
+		var isVerified bool
+		err = rows.Scan(&id, &userEmail, &password, &lastUpdated, &isVerified)
 		if err != nil {
 			return nil, err
 		}
-		return &User{id, email, password, lastUpdated}, nil
+		return &User{id, userEmail, password, lastUpdated, isVerified}, nil
 	}
 	return nil, nil
 }
