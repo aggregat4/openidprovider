@@ -776,6 +776,7 @@ func TestDeleteAccountWithNonExistentUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -796,6 +797,7 @@ func TestDeleteAccountWithUnverifiedUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -820,6 +822,7 @@ func TestDeleteAccountWithVerifiedUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -850,6 +853,7 @@ func TestVerifyDeleteWithInvalidToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -888,6 +892,7 @@ func TestVerifyDeleteWithExpiredToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -926,6 +931,7 @@ func TestVerifyDeleteSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
