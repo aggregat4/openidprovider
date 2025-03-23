@@ -191,6 +191,11 @@ func TestLoginPageGet(t *testing.T) {
 	assert.Equal(t, 405, res.StatusCode)
 }
 
+func setRequiredFormPostHeaders(req *http.Request) {
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
+}
+
 func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
 	// We need to authorize first so we get redirected to the login page
 	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
@@ -216,8 +221,7 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	res, err = client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -304,8 +308,7 @@ func TestLoginAndFetchToken(t *testing.T) {
 	data.Set("redirect_uri", TestRedirectUri)
 	req, _ := http.NewRequest("POST", "http://localhost:1323/token", strings.NewReader(data.Encode()))
 	req.SetBasicAuth(TestClientid, TestSecret)
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	res, err = client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -430,8 +433,7 @@ func TestForgotPasswordWithNonExistentUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -463,8 +465,7 @@ func TestForgotPasswordWithUnverifiedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -500,8 +501,7 @@ func TestForgotPasswordWithVerifiedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -533,8 +533,7 @@ func TestResetPasswordWithInvalidToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -585,8 +584,7 @@ func TestResetPasswordWithExpiredToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -639,8 +637,7 @@ func TestResetPasswordSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -775,8 +772,7 @@ func TestDeleteAccountWithNonExistentUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -796,8 +792,7 @@ func TestDeleteAccountWithUnverifiedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -821,8 +816,7 @@ func TestDeleteAccountWithVerifiedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -852,8 +846,7 @@ func TestVerifyDeleteWithInvalidToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -891,8 +884,7 @@ func TestVerifyDeleteWithExpiredToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -930,8 +922,7 @@ func TestVerifyDeleteSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	setRequiredFormPostHeaders(req)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
