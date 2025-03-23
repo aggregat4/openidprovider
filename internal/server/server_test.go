@@ -54,6 +54,10 @@ var serverConfig = domain.Configuration{
 		PrivateKey:             nil,
 		PublicKey:              nil,
 	},
+	CleanupConfig: domain.CleanupConfiguration{
+		UnverifiedUserMaxAge: 24 * time.Hour,
+		CleanupInterval:      1 * time.Second,
+	},
 }
 
 type MockEmailService struct {
@@ -92,10 +96,47 @@ func (m *MockEmailService) SendPasswordResetEmail(toEmail, resetLink string) err
 	return nil
 }
 
+func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
+	loadKeys(t)
+	var store repository.Store
+	err := store.InitAndVerifyDb(repository.CreateInMemoryDbUrl())
+	if err != nil {
+		panic(err)
+	}
+	controller := server.Controller{
+		Store:        &store,
+		Config:       serverConfig,
+		EmailService: &MockEmailService{},
+	}
+	echoServer := server.InitServer(controller)
+	go func() {
+		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
+	}()
+	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort))
+	return echoServer, controller
+}
+
+// Helper function to properly cleanup test resources
+func cleanupTest(t *testing.T, echoServer *echo.Echo, controller server.Controller) {
+	// First stop the cleanup job if it exists
+	if controller.CleanupJob != nil {
+		controller.CleanupJob.Stop()
+		// Give it a moment to finish any ongoing operations
+		time.Sleep(100 * time.Millisecond)
+	}
+	// Then close the server
+	if err := echoServer.Close(); err != nil {
+		t.Errorf("Error closing server: %v", err)
+	}
+	// Finally close the database
+	if err := controller.Store.Close(); err != nil {
+		t.Errorf("Error closing database: %v", err)
+	}
+}
+
 func TestAuthorizeWithoutParameters(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 	res, err := http.Get(AuthorizeUrl)
 	if err != nil {
 		t.Fatal(err)
@@ -105,8 +146,7 @@ func TestAuthorizeWithoutParameters(t *testing.T) {
 
 func TestAuthorize(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 
 	client := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -129,8 +169,7 @@ func TestAuthorize(t *testing.T) {
 
 func TestLoginPageGet(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 	res, err := http.Get(LoginUrl)
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +203,7 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	res, err = client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -173,8 +213,7 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 
 func TestLoginWithUnknownUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 	// Don't create a test user so we can assert that we get an error
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TestPassword)
@@ -186,8 +225,7 @@ func TestLoginWithUnknownUser(t *testing.T) {
 
 func TestLoginWithWrongPassword(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 	createTestUser(t, controller)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, "WRONGPASSWORD")
@@ -199,8 +237,7 @@ func TestLoginWithWrongPassword(t *testing.T) {
 
 func TestLoginWithExistingUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 	createTestUser(t, controller)
 	err := controller.Store.VerifyUser(TestUsername)
 	if err != nil {
@@ -219,8 +256,7 @@ func TestLoginWithExistingUser(t *testing.T) {
 
 func TestLoginAndFetchToken(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 	createTestUser(t, controller)
 	err := controller.Store.VerifyUser(TestUsername)
 	if err != nil {
@@ -255,6 +291,7 @@ func TestLoginAndFetchToken(t *testing.T) {
 	req, _ := http.NewRequest("POST", "http://localhost:1323/token", strings.NewReader(data.Encode()))
 	req.SetBasicAuth(TestClientid, TestSecret)
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	res, err = client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -335,26 +372,6 @@ func createTestHttpClient() *http.Client {
 	}
 }
 
-func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
-	loadKeys(t)
-	var store repository.Store
-	err := store.InitAndVerifyDb(repository.CreateInMemoryDbUrl())
-	if err != nil {
-		panic(err)
-	}
-	controller := server.Controller{
-		Store:        &store,
-		Config:       serverConfig,
-		EmailService: &MockEmailService{},
-	}
-	echoServer := server.InitServer(controller)
-	go func() {
-		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
-	}()
-	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort))
-	return echoServer, controller
-}
-
 func waitForServerStart(t *testing.T, url string) {
 	maxRetries := 10
 	for i := 0; i < maxRetries; i++ {
@@ -390,8 +407,7 @@ func loadKeys(t *testing.T) {
 
 func TestForgotPasswordWithNonExistentUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 
 	client := createTestHttpClient()
 	data := url.Values{}
@@ -401,6 +417,7 @@ func TestForgotPasswordWithNonExistentUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -413,8 +430,7 @@ func TestForgotPasswordWithNonExistentUser(t *testing.T) {
 
 func TestForgotPasswordWithUnverifiedUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 
 	// Create an unverified user
 	hashedPassword, err := crypto.HashPassword(TestPassword)
@@ -434,6 +450,7 @@ func TestForgotPasswordWithUnverifiedUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -446,8 +463,7 @@ func TestForgotPasswordWithUnverifiedUser(t *testing.T) {
 
 func TestForgotPasswordWithVerifiedUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 
 	// Create and verify a user
 	hashedPassword, err := crypto.HashPassword(TestPassword)
@@ -471,6 +487,7 @@ func TestForgotPasswordWithVerifiedUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -491,8 +508,7 @@ func TestForgotPasswordWithVerifiedUser(t *testing.T) {
 
 func TestResetPasswordWithInvalidToken(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 
 	client := createTestHttpClient()
 	data := url.Values{}
@@ -504,6 +520,7 @@ func TestResetPasswordWithInvalidToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -516,8 +533,7 @@ func TestResetPasswordWithInvalidToken(t *testing.T) {
 
 func TestResetPasswordWithExpiredToken(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 
 	// Create and verify a user
 	hashedPassword, err := crypto.HashPassword(TestPassword)
@@ -556,6 +572,7 @@ func TestResetPasswordWithExpiredToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -568,8 +585,7 @@ func TestResetPasswordWithExpiredToken(t *testing.T) {
 
 func TestResetPasswordSuccess(t *testing.T) {
 	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
+	defer cleanupTest(t, echoServer, controller)
 
 	// Create and verify a user
 	hashedPassword, err := crypto.HashPassword(TestPassword)
@@ -610,6 +626,7 @@ func TestResetPasswordSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://localhost:1323")
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -626,4 +643,110 @@ func TestResetPasswordSuccess(t *testing.T) {
 	assert.Contains(t, locationHeader, TestRedirectUri)
 	assert.NotContains(t, locationHeader, "error=")
 	assert.Contains(t, locationHeader, "code=")
+}
+
+func TestCleanupJob(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	// Create test data
+	// Create an unverified user that's older than max age
+	oldUser := "old@example.com"
+	hashedPassword, err := crypto.HashPassword("password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.CreateUser(oldUser, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.UpdateLastUpdated(oldUser, time.Now().Add(-25*time.Hour).Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create an unverified user that's within max age
+	newUser := "new@example.com"
+	err = controller.Store.CreateUser(newUser, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a verified user
+	verifiedUser := "verified@example.com"
+	err = controller.Store.CreateUser(verifiedUser, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.VerifyUser(verifiedUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create expired verification token
+	expiredToken := repository.VerificationToken{
+		Token:   "expired_token",
+		Email:   oldUser,
+		Type:    "registration",
+		Created: time.Now().Add(-25 * time.Hour).Unix(),
+		Expires: time.Now().Add(-1 * time.Hour).Unix(),
+	}
+	err = controller.Store.CreateVerificationToken(expiredToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create valid verification token
+	validToken := repository.VerificationToken{
+		Token:   "valid_token",
+		Email:   newUser,
+		Type:    "registration",
+		Created: time.Now().Unix(),
+		Expires: time.Now().Add(24 * time.Hour).Unix(),
+	}
+	err = controller.Store.CreateVerificationToken(validToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for cleanup to run
+	time.Sleep(2 * time.Second)
+
+	// Verify results
+	// Old unverified user should be deleted
+	user, err := controller.Store.FindUser(oldUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Nil(t, user, "Old unverified user should be deleted")
+
+	// New unverified user should still exist
+	user, err = controller.Store.FindUser(newUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.NotNil(t, user, "New unverified user should not be deleted")
+	assert.False(t, user.Verified, "New user should still be unverified")
+
+	// Verified user should still exist
+	user, err = controller.Store.FindUser(verifiedUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.NotNil(t, user, "Verified user should not be deleted")
+	assert.True(t, user.Verified, "User should still be verified")
+
+	// Expired token should be deleted
+	token, err := controller.Store.FindVerificationToken("expired_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Nil(t, token, "Expired verification token should be deleted")
+
+	// Valid token should still exist
+	token, err = controller.Store.FindVerificationToken("valid_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.NotNil(t, token, "Valid verification token should not be deleted")
 }

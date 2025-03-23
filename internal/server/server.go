@@ -43,7 +43,7 @@ type Controller struct {
 	Store        *repository.Store
 	Config       domain.Configuration
 	EmailService email.EmailSender
-	cleanupJob   *cleanup.CleanupJob
+	CleanupJob   *cleanup.CleanupJob
 }
 
 func RunServer(controller Controller) {
@@ -59,8 +59,8 @@ func InitServer(controller Controller) *echo.Echo {
 	e.Server.WriteTimeout = time.Duration(controller.Config.ServerWriteTimeoutSeconds) * time.Second
 
 	// Start cleanup job
-	controller.cleanupJob = cleanup.NewCleanupJob(controller.Store, controller.Config.CleanupConfig)
-	controller.cleanupJob.Start()
+	controller.CleanupJob = cleanup.NewCleanupJob(controller.Store, controller.Config.CleanupConfig)
+	controller.CleanupJob.Start()
 
 	t := &Template{
 		templates: template.Must(template.New("").ParseFS(staticFiles, "public/views/*.html")),

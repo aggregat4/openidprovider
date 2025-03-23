@@ -309,3 +309,9 @@ func (store *Store) UpdateUserPassword(email, hashedPassword string) error {
 func (store *Store) Close() error {
 	return store.db.Close()
 }
+
+// Used in tests only!
+func (store *Store) UpdateLastUpdated(email string, lastUpdated int64) error {
+	_, err := store.db.Exec("UPDATE users SET last_updated = ? WHERE email = ?", lastUpdated, email)
+	return err
+}
