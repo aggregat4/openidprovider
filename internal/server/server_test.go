@@ -23,6 +23,7 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -92,6 +93,19 @@ func (m *MockEmailService) SendPasswordResetEmail(toEmail, resetLink string) err
 		ToEmail: toEmail,
 		Subject: "Reset your password",
 		Content: resetLink,
+	})
+	return nil
+}
+
+func (m *MockEmailService) SendDeleteAccountEmail(toEmail, deleteLink string) error {
+	m.SentEmails = append(m.SentEmails, struct {
+		ToEmail string
+		Subject string
+		Content string
+	}{
+		ToEmail: toEmail,
+		Subject: "Delete your account",
+		Content: deleteLink,
 	})
 	return nil
 }
@@ -749,4 +763,180 @@ func TestCleanupJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.NotNil(t, token, "Valid verification token should not be deleted")
+}
+
+func TestDeleteAccountWithNonExistentUser(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	data := url.Values{}
+	data.Set("email", "nonexistent@example.com")
+	req, err := http.NewRequest("POST", "http://localhost:1323/delete-account", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	client := createTestHttpClient()
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 200, res.StatusCode)
+}
+
+func TestDeleteAccountWithUnverifiedUser(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+	createTestUser(t, controller)
+
+	data := url.Values{}
+	data.Set("email", TestUsername)
+	req, err := http.NewRequest("POST", "http://localhost:1323/delete-account", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	client := createTestHttpClient()
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 200, res.StatusCode)
+}
+
+func TestDeleteAccountWithVerifiedUser(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+	createTestUser(t, controller)
+	err := controller.Store.VerifyUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := url.Values{}
+	data.Set("email", TestUsername)
+	req, err := http.NewRequest("POST", "http://localhost:1323/delete-account", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	client := createTestHttpClient()
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 200, res.StatusCode)
+
+	// Verify that a delete account email was sent
+	mockEmailService := controller.EmailService.(*MockEmailService)
+	found := false
+	for _, email := range mockEmailService.SentEmails {
+		if email.Subject == "Delete your account" && email.ToEmail == TestUsername {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "Delete account email should have been sent")
+}
+
+func TestVerifyDeleteWithInvalidToken(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	data := url.Values{}
+	data.Set("code", "invalid-token")
+	req, err := http.NewRequest("POST", "http://localhost:1323/verify-delete", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	client := createTestHttpClient()
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 400, res.StatusCode)
+}
+
+func TestVerifyDeleteWithExpiredToken(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+	createTestUser(t, controller)
+	err := controller.Store.VerifyUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create an expired token
+	token := uuid.New().String()
+	verificationToken := repository.VerificationToken{
+		Token:   token,
+		Email:   TestUsername,
+		Type:    "delete_account",
+		Created: time.Now().Add(-48 * time.Hour).Unix(),
+		Expires: time.Now().Add(-24 * time.Hour).Unix(),
+	}
+	err = controller.Store.CreateVerificationToken(verificationToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := url.Values{}
+	data.Set("code", token)
+	req, err := http.NewRequest("POST", "http://localhost:1323/verify-delete", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	client := createTestHttpClient()
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 400, res.StatusCode)
+}
+
+func TestVerifyDeleteSuccess(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+	createTestUser(t, controller)
+	err := controller.Store.VerifyUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a valid token
+	token := uuid.New().String()
+	verificationToken := repository.VerificationToken{
+		Token:   token,
+		Email:   TestUsername,
+		Type:    "delete_account",
+		Created: time.Now().Unix(),
+		Expires: time.Now().Add(24 * time.Hour).Unix(),
+	}
+	err = controller.Store.CreateVerificationToken(verificationToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := url.Values{}
+	data.Set("code", token)
+	req, err := http.NewRequest("POST", "http://localhost:1323/verify-delete", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	client := createTestHttpClient()
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 200, res.StatusCode)
+
+	// Verify that the user was deleted
+	user, err := controller.Store.FindUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Nil(t, user, "User should have been deleted")
 }

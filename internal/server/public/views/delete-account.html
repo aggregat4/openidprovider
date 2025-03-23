@@ -1,0 +1,55 @@
+{{define "delete-account"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delete Account</title>
+  <link rel="stylesheet" href="/public/styles/main.css">
+</head>
+<body>
+  <main>
+    <h1>Delete Account</h1>
+    
+    {{if .Success}}
+    <div class="message success">
+      {{.Success}}
+    </div>
+    <div class="links">
+      <a href="/login">Return to Login</a>
+    </div>
+    {{else}}
+      {{if .Error}}
+      <div class="message error">
+        {{.Error}}
+      </div>
+      {{end}}
+
+      <form action="/delete-account" method="POST">
+        <div class="form-group">
+          <label for="email">Email address</label>
+          <input 
+            type="email" 
+            id="email" 
+            name="email" 
+            required 
+            autofocus
+            {{if .Email}}value="{{.Email}}"{{end}}
+          >
+          <div class="helper-text">
+            Enter your email address and we'll send you a verification link to confirm account deletion
+          </div>
+        </div>
+
+        <button type="submit">Send Delete Link</button>
+      </form>
+
+      <div class="links">
+        <a href="/login">Return to Login</a>
+      </div>
+    {{end}}
+  </main>
+</body>
+</html>
+{{end}} 

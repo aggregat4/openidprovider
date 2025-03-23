@@ -107,6 +107,12 @@ func InitServer(controller Controller) *echo.Echo {
 	e.GET("/reset-password", controller.showResetPasswordPage)
 	e.POST("/reset-password", controller.resetPassword)
 
+	e.GET("/delete-account", controller.showDeleteAccountPage)
+	e.POST("/delete-account", controller.deleteAccount)
+	e.GET("/verify-delete", controller.showVerifyDeletePage)
+	e.POST("/verify-delete", controller.verifyDelete)
+	e.GET("/verify-delete/resend", controller.resendDeleteVerification)
+
 	return e
 }
 
@@ -425,6 +431,12 @@ type ResetPasswordPage struct {
 	Success string
 }
 
+type DeleteAccountPage struct {
+	Email   string
+	Error   string
+	Success string
+}
+
 func (controller *Controller) showRegisterPage(c echo.Context) error {
 	return c.Render(http.StatusOK, "register", RegisterPage{
 		Email:   c.FormValue("email"),
@@ -729,4 +741,175 @@ func (controller *Controller) resetPassword(c echo.Context) error {
 	return c.Render(http.StatusOK, "reset-password", ResetPasswordPage{
 		Success: "Password has been reset successfully. You can now log in with your new password.",
 	})
+}
+
+func (controller *Controller) showDeleteAccountPage(c echo.Context) error {
+	return c.Render(http.StatusOK, "delete-account", DeleteAccountPage{})
+}
+
+func (controller *Controller) deleteAccount(c echo.Context) error {
+	email := c.FormValue("email")
+	if email == "" {
+		return c.Render(http.StatusBadRequest, "delete-account", DeleteAccountPage{
+			Error: "Email is required",
+		})
+	}
+
+	// Check if user exists and is verified
+	user, err := controller.Store.FindUser(email)
+	if err != nil {
+		return c.Render(http.StatusInternalServerError, "delete-account", DeleteAccountPage{
+			Error: "Internal error",
+		})
+	}
+
+	if user == nil || !user.Verified {
+		// Don't reveal if the email exists or not for security
+		return c.Render(http.StatusOK, "delete-account", DeleteAccountPage{
+			Success: "If your account exists and is verified, you will receive an email with instructions to delete it.",
+		})
+	}
+
+	// Generate delete token
+	token := uuid.New().String()
+	verificationToken := repository.VerificationToken{
+		Token:   token,
+		Email:   email,
+		Type:    "delete_account",
+		Created: time.Now().Unix(),
+		Expires: time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	err = controller.Store.CreateVerificationToken(verificationToken)
+	if err != nil {
+		return c.Render(http.StatusInternalServerError, "delete-account", DeleteAccountPage{
+			Error: "Internal error",
+		})
+	}
+
+	// Send delete verification email
+	deleteLink := fmt.Sprintf("%s/verify-delete?token=%s", controller.Config.BaseUrl, token)
+	err = controller.EmailService.SendDeleteAccountEmail(email, deleteLink)
+	if err != nil {
+		logger.Error("Failed to send delete account email", "error", err)
+	}
+
+	return c.Render(http.StatusOK, "delete-account", DeleteAccountPage{
+		Success: "If your account exists and is verified, you will receive an email with instructions to delete it.",
+	})
+}
+
+type VerifyDeletePage struct {
+	Code    string
+	Error   string
+	Success string
+}
+
+func (controller *Controller) showVerifyDeletePage(c echo.Context) error {
+	token := c.QueryParam("token")
+	return c.Render(http.StatusOK, "verify-delete", VerifyDeletePage{
+		Code:  token,
+		Error: "Invalid or missing verification code",
+	})
+}
+
+func (controller *Controller) verifyDelete(c echo.Context) error {
+	token := c.FormValue("code")
+	if token == "" {
+		return c.Render(http.StatusBadRequest, "verify-delete", VerifyDeletePage{
+			Error: "Invalid or missing verification code",
+		})
+	}
+
+	// Find and validate token
+	verificationToken, err := controller.Store.FindVerificationToken(token)
+	if err != nil {
+		return c.Render(http.StatusInternalServerError, "verify-delete", VerifyDeletePage{
+			Error: "Internal error",
+		})
+	}
+
+	if verificationToken == nil {
+		return c.Render(http.StatusBadRequest, "verify-delete", VerifyDeletePage{
+			Error: "Invalid or expired verification code",
+		})
+	}
+
+	if verificationToken.Type != "delete_account" {
+		return c.Render(http.StatusBadRequest, "verify-delete", VerifyDeletePage{
+			Error: "Invalid verification code type",
+		})
+	}
+
+	if verificationToken.Expires < time.Now().Unix() {
+		err := controller.Store.DeleteVerificationToken(token)
+		if err != nil {
+			return c.Render(http.StatusInternalServerError, "verify-delete", VerifyDeletePage{
+				Error: "Internal error",
+			})
+		}
+		return c.Render(http.StatusBadRequest, "verify-delete", VerifyDeletePage{
+			Error: "Verification code has expired",
+		})
+	}
+
+	// Delete the user
+	err = controller.Store.DeleteUser(verificationToken.Email)
+	if err != nil {
+		return c.Render(http.StatusInternalServerError, "verify-delete", VerifyDeletePage{
+			Error: "Internal error",
+		})
+	}
+
+	// Delete the used token
+	err = controller.Store.DeleteVerificationToken(token)
+	if err != nil {
+		logger.Error("Failed to delete verification token", "error", err)
+	}
+
+	return c.Render(http.StatusOK, "verify-delete", VerifyDeletePage{
+		Success: "Your account has been successfully deleted.",
+	})
+}
+
+func (controller *Controller) resendDeleteVerification(c echo.Context) error {
+	email := c.QueryParam("email")
+	if email == "" {
+		return c.Redirect(http.StatusFound, "/delete-account")
+	}
+
+	// Check if user exists and is verified
+	user, err := controller.Store.FindUser(email)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	if user == nil || !user.Verified {
+		// Don't reveal if the email exists or not for security
+		return c.Redirect(http.StatusFound, "/delete-account")
+	}
+
+	// Generate new delete token
+	token := uuid.New().String()
+	verificationToken := repository.VerificationToken{
+		Token:   token,
+		Email:   email,
+		Type:    "delete_account",
+		Created: time.Now().Unix(),
+		Expires: time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	err = controller.Store.CreateVerificationToken(verificationToken)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	// Send delete verification email
+	deleteLink := fmt.Sprintf("%s/verify-delete?token=%s", controller.Config.BaseUrl, token)
+	err = controller.EmailService.SendDeleteAccountEmail(email, deleteLink)
+	if err != nil {
+		logger.Error("Failed to send delete account email", "error", err)
+	}
+
+	return c.Redirect(http.StatusFound, "/verify-delete?token="+token)
 }

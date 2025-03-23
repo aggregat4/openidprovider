@@ -315,3 +315,32 @@ func (store *Store) UpdateLastUpdated(email string, lastUpdated int64) error {
 	_, err := store.db.Exec("UPDATE users SET last_updated = ? WHERE email = ?", lastUpdated, email)
 	return err
 }
+
+func (store *Store) DeleteUser(email string) error {
+	// Start a transaction to ensure all related data is deleted atomically
+	tx, err := store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete verification tokens
+	_, err = tx.Exec("DELETE FROM verification_tokens WHERE email = ?", email)
+	if err != nil {
+		return err
+	}
+
+	// Delete authorization codes
+	_, err = tx.Exec("DELETE FROM codes WHERE email = ?", email)
+	if err != nil {
+		return err
+	}
+
+	// Delete the user
+	_, err = tx.Exec("DELETE FROM users WHERE email = ?", email)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}

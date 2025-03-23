@@ -11,6 +11,7 @@ import (
 type EmailSender interface {
 	SendVerificationEmail(toEmail, verificationLink string) error
 	SendPasswordResetEmail(toEmail, resetLink string) error
+	SendDeleteAccountEmail(toEmail, deleteLink string) error
 }
 
 type EmailService struct {
@@ -87,6 +88,44 @@ Best regards,
     <p>Best regards,<br>%s</p>
 </body>
 </html>`, resetLink, s.config.FromName)
+
+	message := mail.NewSingleEmail(from, subject, to, plainTextContent, htmlContent)
+	response, err := s.client.Send(message)
+	if err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
+	}
+
+	if response.StatusCode >= 400 {
+		return fmt.Errorf("failed to send email: status code %d", response.StatusCode)
+	}
+
+	return nil
+}
+
+func (s *EmailService) SendDeleteAccountEmail(toEmail, deleteLink string) error {
+	from := mail.NewEmail(s.config.FromName, s.config.FromEmail)
+	to := mail.NewEmail("", toEmail)
+	subject := "Delete your account"
+
+	plainTextContent := fmt.Sprintf(`You have requested to delete your account. Click the following link to confirm:
+%s
+
+If you did not request to delete your account, please ignore this email.
+
+Best regards,
+%s`, deleteLink, s.config.FromName)
+
+	htmlContent := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<body>
+    <p>You have requested to delete your account. Click the following link to confirm:</p>
+    <p><a href="%s">Delete Account</a></p>
+    <p>If you did not request to delete your account, please ignore this email.</p>
+    <br>
+    <p>Best regards,<br>%s</p>
+</body>
+</html>`, deleteLink, s.config.FromName)
 
 	message := mail.NewSingleEmail(from, subject, to, plainTextContent, htmlContent)
 	response, err := s.client.Send(message)
