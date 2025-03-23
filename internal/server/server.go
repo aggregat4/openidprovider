@@ -1,9 +1,11 @@
 package server
 
 import (
+	"aggregat4/openidprovider/internal/cleanup"
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/pkg/email"
+
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
@@ -18,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	baselibmiddleware "github.com/aggregat4/go-baselib-services/v3/middleware"
 	"github.com/aggregat4/go-baselib/crypto"
 
 	"github.com/go-jose/go-jose/v3"
@@ -40,6 +43,7 @@ type Controller struct {
 	Store        *repository.Store
 	Config       domain.Configuration
 	EmailService email.EmailSender
+	cleanupJob   *cleanup.CleanupJob
 }
 
 func RunServer(controller Controller) {
@@ -53,6 +57,10 @@ func InitServer(controller Controller) *echo.Echo {
 	// Set server timeouts based on advice from https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/#1687428081
 	e.Server.ReadTimeout = time.Duration(controller.Config.ServerReadTimeoutSeconds) * time.Second
 	e.Server.WriteTimeout = time.Duration(controller.Config.ServerWriteTimeoutSeconds) * time.Second
+
+	// Start cleanup job
+	controller.cleanupJob = cleanup.NewCleanupJob(controller.Store, controller.Config.CleanupConfig)
+	controller.cleanupJob.Start()
 
 	t := &Template{
 		templates: template.Must(template.New("").ParseFS(staticFiles, "public/views/*.html")),
@@ -74,6 +82,8 @@ func InitServer(controller Controller) *echo.Echo {
 		},
 		Validator: controller.basicAuthValidator,
 	}))
+	// CSRF protection middleware
+	e.Use(baselibmiddleware.CsrfMiddleware)
 
 	e.GET("/.well-known/openid-configuration", controller.openIdConfiguration)
 	e.GET("/.well-known/jwks.json", controller.jwks)

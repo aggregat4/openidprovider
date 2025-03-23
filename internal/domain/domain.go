@@ -1,6 +1,9 @@
 package domain
 
-import "crypto/rsa"
+import (
+	"crypto/rsa"
+	"time"
+)
 
 type ClientId = string
 
@@ -26,12 +29,18 @@ type Configuration struct {
 	RegisteredClients         map[ClientId]Client
 	JwtConfig                 JwtConfiguration
 	SendgridConfig            SendgridConfiguration
+	CleanupConfig             CleanupConfiguration
 }
 
 type SendgridConfiguration struct {
 	APIKey    string
 	FromEmail string
 	FromName  string
+}
+
+type CleanupConfiguration struct {
+	UnverifiedUserMaxAge time.Duration
+	CleanupInterval      time.Duration
 }
 
 // OpenIdConfiguration This represents the document served at /.well-known/openid-configuration

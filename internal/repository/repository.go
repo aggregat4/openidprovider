@@ -256,6 +256,27 @@ func (store *Store) DeleteExpiredVerificationTokens() error {
 	return err
 }
 
+func (store *Store) DeleteUnverifiedUsers(maxAge time.Duration) error {
+	// First delete verification tokens for unverified users
+	_, err := store.db.Exec(`
+		DELETE FROM verification_tokens 
+		WHERE email IN (
+			SELECT email FROM users 
+			WHERE is_verified = 0 
+			AND last_updated < ?
+		)`, time.Now().Add(-maxAge).Unix())
+	if err != nil {
+		return err
+	}
+
+	// Then delete the unverified users
+	_, err = store.db.Exec(`
+		DELETE FROM users 
+		WHERE is_verified = 0 
+		AND last_updated < ?`, time.Now().Add(-maxAge).Unix())
+	return err
+}
+
 func (store *Store) VerifyUser(email string) error {
 	_, err := store.db.Exec("UPDATE users SET is_verified = 1 WHERE email = ?", email)
 	return err
