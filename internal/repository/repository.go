@@ -257,6 +257,12 @@ func (store *Store) IsUserVerified(email string) (bool, error) {
 	return false, nil
 }
 
+func (store *Store) UpdateUserPassword(email, hashedPassword string) error {
+	_, err := store.db.Exec("UPDATE users SET password = ?, last_updated = ? WHERE email = ?",
+		hashedPassword, time.Now().Unix(), email)
+	return err
+}
+
 func (store *Store) Close() error {
 	return store.db.Close()
 }

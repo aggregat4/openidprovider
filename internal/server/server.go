@@ -98,6 +98,12 @@ func InitServer(controller Controller) *echo.Echo {
 
 	e.GET("/verify", controller.showVerificationPage)
 	e.POST("/verify", controller.verify)
+
+	e.GET("/forgot-password", controller.showForgotPasswordPage)
+	e.POST("/forgot-password", controller.forgotPassword)
+	e.GET("/reset-password", controller.showResetPasswordPage)
+	e.POST("/reset-password", controller.resetPassword)
+
 	return e
 }
 
@@ -404,6 +410,18 @@ type VerifyPage struct {
 	Success string
 }
 
+type ForgotPasswordPage struct {
+	Email   string
+	Error   string
+	Success string
+}
+
+type ResetPasswordPage struct {
+	Token   string
+	Error   string
+	Success string
+}
+
 func (controller *Controller) showRegisterPage(c echo.Context) error {
 	return c.Render(http.StatusOK, "register", RegisterPage{
 		Email:   c.FormValue("email"),
@@ -559,5 +577,149 @@ func (controller *Controller) showLoginPage(c echo.Context) error {
 		ClientId:    c.QueryParam("client_id"),
 		RedirectUri: c.QueryParam("redirect_uri"),
 		State:       c.QueryParam("state"),
+	})
+}
+
+func (controller *Controller) showForgotPasswordPage(c echo.Context) error {
+	return c.Render(http.StatusOK, "forgot-password", ForgotPasswordPage{
+		Email:   c.FormValue("email"),
+		Error:   "",
+		Success: "",
+	})
+}
+
+func (controller *Controller) forgotPassword(c echo.Context) error {
+	email := c.FormValue("email")
+
+	// Basic validation
+	if email == "" {
+		return c.Render(http.StatusBadRequest, "forgot-password", ForgotPasswordPage{
+			Email: email,
+			Error: "Email is required",
+		})
+	}
+
+	// Check if user exists and is verified
+	user, err := controller.Store.FindUser(email)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	if user == nil || !user.Verified {
+		// Don't reveal if the email exists or not for security
+		return c.Render(http.StatusOK, "forgot-password", ForgotPasswordPage{
+			Email:   email,
+			Success: "If an account exists with this email, you will receive a password reset link.",
+		})
+	}
+
+	// Generate reset token
+	token := uuid.New().String()
+	verificationToken := repository.VerificationToken{
+		Token:   token,
+		Email:   email,
+		Type:    "password_reset",
+		Created: time.Now().Unix(),
+		Expires: time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	err = controller.Store.CreateVerificationToken(verificationToken)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	// Send reset email
+	resetLink := fmt.Sprintf("%s/reset-password?token=%s", controller.Config.BaseUrl, token)
+	err = controller.EmailService.SendPasswordResetEmail(email, resetLink)
+	if err != nil {
+		logger.Error("Failed to send password reset email", "error", err)
+		// Continue with the flow even if email sending fails
+	}
+
+	return c.Render(http.StatusOK, "forgot-password", ForgotPasswordPage{
+		Email:   email,
+		Success: "If an account exists with this email, you will receive a password reset link.",
+	})
+}
+
+func (controller *Controller) showResetPasswordPage(c echo.Context) error {
+	token := c.QueryParam("token")
+	return c.Render(http.StatusOK, "reset-password", ResetPasswordPage{
+		Token: token,
+	})
+}
+
+func (controller *Controller) resetPassword(c echo.Context) error {
+	token := c.FormValue("token")
+	password := c.FormValue("password")
+	confirmPassword := c.FormValue("confirmPassword")
+
+	// Basic validation
+	if token == "" || password == "" || confirmPassword == "" {
+		return c.Render(http.StatusBadRequest, "reset-password", ResetPasswordPage{
+			Token: token,
+			Error: "All fields are required",
+		})
+	}
+
+	if password != confirmPassword {
+		return c.Render(http.StatusBadRequest, "reset-password", ResetPasswordPage{
+			Token: token,
+			Error: "Passwords do not match",
+		})
+	}
+
+	// Find and validate token
+	verificationToken, err := controller.Store.FindVerificationToken(token)
+	if err != nil {
+		return c.Render(http.StatusInternalServerError, "reset-password", ResetPasswordPage{
+			Error: "Internal error",
+		})
+	}
+
+	if verificationToken == nil || verificationToken.Type != "password_reset" {
+		return c.Render(http.StatusBadRequest, "reset-password", ResetPasswordPage{
+			Error: "Invalid or expired reset link",
+		})
+	}
+
+	if verificationToken.Expires < time.Now().Unix() {
+		err := controller.Store.DeleteVerificationToken(token)
+		if err != nil {
+			return c.Render(http.StatusInternalServerError, "reset-password", ResetPasswordPage{
+				Error: "Internal error",
+			})
+		}
+		return c.Render(http.StatusBadRequest, "reset-password", ResetPasswordPage{
+			Error: "Reset link has expired",
+		})
+	}
+
+	// Hash new password
+	hashedPassword, err := crypto.HashPassword(password)
+	if err != nil {
+		return c.Render(http.StatusInternalServerError, "reset-password", ResetPasswordPage{
+			Error: "Internal error",
+		})
+	}
+
+	// Update password
+	err = controller.Store.UpdateUserPassword(verificationToken.Email, hashedPassword)
+	if err != nil {
+		return c.Render(http.StatusInternalServerError, "reset-password", ResetPasswordPage{
+			Error: "Internal error",
+		})
+	}
+
+	// Delete used token
+	err = controller.Store.DeleteVerificationToken(token)
+	if err != nil {
+		return c.Render(http.StatusInternalServerError, "reset-password", ResetPasswordPage{
+			Error: "Internal error",
+		})
+	}
+
+	return c.Render(http.StatusOK, "reset-password", ResetPasswordPage{
+		Success: "Password has been reset successfully. You can now log in with your new password.",
 	})
 }
