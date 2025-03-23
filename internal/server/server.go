@@ -39,7 +39,7 @@ const ContentTypeJson = "application/json;charset=UTF-8"
 type Controller struct {
 	Store        *repository.Store
 	Config       domain.Configuration
-	EmailService *email.EmailService
+	EmailService email.EmailSender
 }
 
 func RunServer(controller Controller) {
@@ -65,13 +65,6 @@ func InitServer(controller Controller) *echo.Echo {
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-	// Debug logging
-	//e.Use(middleware.BodyDump(func(c echo.Context, reqBody, resBody []byte) {
-	//	logger.Info("Request: %s %s", "requestmethod", c.Request().Method, "requesturl", c.Request().URL)
-	//	logger.Info("Response: %s", "responsebody", string(resBody))
-	//}))
-	// Added session middleware just so we can have persistence for CSRF tokens
-	// TODO: Switched to using origin checking for CSRF protection, see if we still need this
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte(uuid.New().String()))))
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{Level: 5}))
 	e.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
@@ -573,6 +566,10 @@ func (controller *Controller) verify(c echo.Context) error {
 }
 
 func (controller *Controller) showLoginPage(c echo.Context) error {
+	if c.Request().Method == "GET" {
+		return echo.NewHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.Render(http.StatusOK, "login", LoginPage{
 		ClientId:    c.QueryParam("client_id"),
 		RedirectUri: c.QueryParam("redirect_uri"),

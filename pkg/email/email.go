@@ -8,6 +8,11 @@ import (
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
+type EmailSender interface {
+	SendVerificationEmail(toEmail, verificationLink string) error
+	SendPasswordResetEmail(toEmail, resetLink string) error
+}
+
 type EmailService struct {
 	config domain.SendgridConfiguration
 	client *sendgrid.Client

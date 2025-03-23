@@ -224,6 +224,28 @@ func (store *Store) FindVerificationToken(token string) (*VerificationToken, err
 	return nil, nil
 }
 
+func (store *Store) FindVerificationTokenByEmail(email string) ([]*VerificationToken, error) {
+	rows, err := store.db.Query(
+		"SELECT token, email, type, created, expires FROM verification_tokens WHERE email = ?",
+		email,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []*VerificationToken
+	for rows.Next() {
+		var vt VerificationToken
+		err = rows.Scan(&vt.Token, &vt.Email, &vt.Type, &vt.Created, &vt.Expires)
+		if err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, &vt)
+	}
+	return tokens, nil
+}
+
 func (store *Store) DeleteVerificationToken(token string) error {
 	_, err := store.db.Exec("DELETE FROM verification_tokens WHERE token = ?", token)
 	return err

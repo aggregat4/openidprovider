@@ -4,17 +4,16 @@ import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
+	"aggregat4/openidprovider/pkg/email"
 	"crypto/rand"
 	"crypto/rsa"
 
 	"github.com/aggregat4/go-baselib/crypto"
 
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,6 +56,42 @@ var serverConfig = domain.Configuration{
 	},
 }
 
+type MockEmailService struct {
+	SentEmails []struct {
+		ToEmail string
+		Subject string
+		Content string
+	}
+}
+
+var _ email.EmailSender = (*MockEmailService)(nil)
+
+func (m *MockEmailService) SendVerificationEmail(toEmail, verificationLink string) error {
+	m.SentEmails = append(m.SentEmails, struct {
+		ToEmail string
+		Subject string
+		Content string
+	}{
+		ToEmail: toEmail,
+		Subject: "Verify your email address",
+		Content: verificationLink,
+	})
+	return nil
+}
+
+func (m *MockEmailService) SendPasswordResetEmail(toEmail, resetLink string) error {
+	m.SentEmails = append(m.SentEmails, struct {
+		ToEmail string
+		Subject string
+		Content string
+	}{
+		ToEmail: toEmail,
+		Subject: "Reset your password",
+		Content: resetLink,
+	})
+	return nil
+}
+
 func TestAuthorizeWithoutParameters(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
@@ -72,15 +107,24 @@ func TestAuthorize(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer echoServer.Close()
 	defer controller.Store.Close()
-	res, err := http.Get(AuthorizeUrl + "?scope=openid&client_id=" + TestClientid + "&response_type=code&redirect_uri=" + TestRedirectUri + "&state=" + TestState)
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
+	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Equal(t, 200, res.StatusCode)
-	assert.Equal(t, "text/html; charset=UTF-8", res.Header.Get("Content-Type"))
-	assert.Equal(t, "no-store", res.Header.Get("Cache-Control"))
-	// check whether our state shows up in the response
-	assert.Contains(t, readBody(res), fmt.Sprintf("value=\"%s\"", TestState))
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, "/login")
+	assert.Contains(t, locationHeader, "client_id="+TestClientid)
+	assert.Contains(t, locationHeader, "redirect_uri="+url.QueryEscape(TestRedirectUri))
+	assert.Contains(t, locationHeader, "state="+TestState)
 }
 
 func TestLoginPageGet(t *testing.T) {
@@ -94,31 +138,20 @@ func TestLoginPageGet(t *testing.T) {
 	assert.Equal(t, 405, res.StatusCode)
 }
 
-func TestLoginWithoutCsrf(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer echoServer.Close()
-	defer controller.Store.Close()
-	data := url.Values{}
-	res, err := http.PostForm(LoginUrl, data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assert.Equal(t, 400, res.StatusCode)
-	assert.Contains(t, readBody(res), "missing csrf token")
-}
-
 func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
-	// We need to authorize first so we get a login page with a csrf token
+	// We need to authorize first so we get redirected to the login page
 	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Equal(t, 200, res.StatusCode)
-	csrfToken := extractCsrfToken(readBody(res))
-	if csrfToken == "" {
-		t.Fatal("csrf token not found")
-	}
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, "/login")
+	assert.Contains(t, locationHeader, "client_id="+TestClientid)
+	assert.Contains(t, locationHeader, "redirect_uri="+url.QueryEscape(TestRedirectUri))
+	assert.Contains(t, locationHeader, "state="+TestState)
+
 	// Perform the login
 	data := url.Values{}
 	data.Set("clientid", TestClientid)
@@ -126,7 +159,6 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 	data.Set("password", password)
 	data.Set("redirecturi", TestRedirectUri)
 	data.Set("state", TestState)
-	data.Set("csrf_token", csrfToken)
 	req, err = http.NewRequest("POST", LoginUrl, strings.NewReader(data.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +178,7 @@ func TestLoginWithUnknownUser(t *testing.T) {
 	// Don't create a test user so we can assert that we get an error
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TestPassword)
-	// assert that we redirected to the client with a code
+	// assert that we redirected to the client with an error
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
 	assert.Contains(t, locationHeader, "error=access_denied")
@@ -159,7 +191,7 @@ func TestLoginWithWrongPassword(t *testing.T) {
 	createTestUser(t, controller)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, "WRONGPASSWORD")
-	// assert that we redirected to the client with a code
+	// assert that we redirected to the client with an error
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
 	assert.Contains(t, locationHeader, "error=access_denied")
@@ -170,6 +202,10 @@ func TestLoginWithExistingUser(t *testing.T) {
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	createTestUser(t, controller)
+	err := controller.Store.VerifyUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TestPassword)
 	// assert that we redirected to the client with a code
@@ -186,6 +222,10 @@ func TestLoginAndFetchToken(t *testing.T) {
 	defer echoServer.Close()
 	defer controller.Store.Close()
 	createTestUser(t, controller)
+	err := controller.Store.VerifyUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TestPassword)
 	// assert that we redirected to the client with a code and no error
@@ -222,8 +262,6 @@ func TestLoginAndFetchToken(t *testing.T) {
 	assert.Equal(t, 200, res.StatusCode)
 	assert.Equal(t, "application/json;charset=UTF-8", res.Header.Get("Content-Type"))
 	assert.Equal(t, "no-store", res.Header.Get("Cache-Control"))
-	// TODO: do we need to set no-cache?
-	// assert.Equal(t, "no-cache", res.Header.Get("Pragma"))
 	// assert that we got an id token
 	body := readBody(res)
 	assert.Contains(t, body, "id_token")
@@ -297,16 +335,6 @@ func createTestHttpClient() *http.Client {
 	}
 }
 
-// extract csrf token from the login HTML page
-func extractCsrfToken(body string) string {
-	re := regexp.MustCompile(`name="csrf_token" value="(\w+)"`)
-	matches := re.FindStringSubmatch(body)
-	if len(matches) < 2 {
-		return ""
-	}
-	return matches[1]
-}
-
 func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 	loadKeys(t)
 	var store repository.Store
@@ -317,7 +345,7 @@ func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 	controller := server.Controller{
 		Store:        &store,
 		Config:       serverConfig,
-		EmailService: nil, // We don't need email service for these tests
+		EmailService: &MockEmailService{},
 	}
 	echoServer := server.InitServer(controller)
 	go func() {
@@ -358,4 +386,244 @@ func loadKeys(t *testing.T) {
 		serverConfig.JwtConfig.PrivateKey = key
 		serverConfig.JwtConfig.PublicKey = &key.PublicKey
 	}
+}
+
+func TestForgotPasswordWithNonExistentUser(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer echoServer.Close()
+	defer controller.Store.Close()
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("email", "nonexistent@example.com")
+	req, err := http.NewRequest("POST", "http://localhost:1323/forgot-password", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "If an account exists with this email")
+}
+
+func TestForgotPasswordWithUnverifiedUser(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer echoServer.Close()
+	defer controller.Store.Close()
+
+	// Create an unverified user
+	hashedPassword, err := crypto.HashPassword(TestPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.CreateUser(TestUsername, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("email", TestUsername)
+	req, err := http.NewRequest("POST", "http://localhost:1323/forgot-password", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "If an account exists with this email")
+}
+
+func TestForgotPasswordWithVerifiedUser(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer echoServer.Close()
+	defer controller.Store.Close()
+
+	// Create and verify a user
+	hashedPassword, err := crypto.HashPassword(TestPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.CreateUser(TestUsername, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.VerifyUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("email", TestUsername)
+	req, err := http.NewRequest("POST", "http://localhost:1323/forgot-password", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "If an account exists with this email")
+
+	// Verify that a reset token was created
+	tokens, err := controller.Store.FindVerificationTokenByEmail(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 1, len(tokens))
+	assert.Equal(t, "password_reset", tokens[0].Type)
+}
+
+func TestResetPasswordWithInvalidToken(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer echoServer.Close()
+	defer controller.Store.Close()
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("token", "invalid-token")
+	data.Set("password", "newpassword")
+	data.Set("confirmPassword", "newpassword")
+	req, err := http.NewRequest("POST", "http://localhost:1323/reset-password", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, 400, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "Invalid or expired reset link")
+}
+
+func TestResetPasswordWithExpiredToken(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer echoServer.Close()
+	defer controller.Store.Close()
+
+	// Create and verify a user
+	hashedPassword, err := crypto.HashPassword(TestPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.CreateUser(TestUsername, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.VerifyUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create an expired reset token
+	expiredToken := repository.VerificationToken{
+		Token:   "expired-token",
+		Email:   TestUsername,
+		Type:    "password_reset",
+		Created: time.Now().Add(-25 * time.Hour).Unix(),
+		Expires: time.Now().Add(-1 * time.Hour).Unix(),
+	}
+	err = controller.Store.CreateVerificationToken(expiredToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("token", "expired-token")
+	data.Set("password", "newpassword")
+	data.Set("confirmPassword", "newpassword")
+	req, err := http.NewRequest("POST", "http://localhost:1323/reset-password", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, 400, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "Reset link has expired")
+}
+
+func TestResetPasswordSuccess(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer echoServer.Close()
+	defer controller.Store.Close()
+
+	// Create and verify a user
+	hashedPassword, err := crypto.HashPassword(TestPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.CreateUser(TestUsername, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.VerifyUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a valid reset token
+	validToken := repository.VerificationToken{
+		Token:   "valid-token",
+		Email:   TestUsername,
+		Type:    "password_reset",
+		Created: time.Now().Unix(),
+		Expires: time.Now().Add(24 * time.Hour).Unix(),
+	}
+	err = controller.Store.CreateVerificationToken(validToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Reset password
+	newPassword := "newpassword123"
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("token", "valid-token")
+	data.Set("password", newPassword)
+	data.Set("confirmPassword", newPassword)
+	req, err := http.NewRequest("POST", "http://localhost:1323/reset-password", strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "Password has been reset successfully")
+
+	// Verify the password was changed by trying to log in
+	res = performAuthorizeAndLogin(t, client, newPassword)
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, TestRedirectUri)
+	assert.NotContains(t, locationHeader, "error=")
+	assert.Contains(t, locationHeader, "code=")
 }
