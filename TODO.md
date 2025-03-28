@@ -1,37 +1,81 @@
 # TODO
 
-## Self-Registration
+## Self-Registration ✅
 
 ### Allow **registration**
-  * add register link to login page 
-  * add a regsitration page
-    * allow specifying email and password (2 times) on that page
-    * registering triggers a queued verification email
-      * send the mail using Sendgrid
-  * when a valid verification code is provided the user is registered and redirected to the login page
-  * a cleanup job must be run to remove unverified users after a certain amount of time
+  * ✅ add register link to login page
+  * ✅ add a registration page
+    * ✅ allow specifying email and password (2 times) on that page
+    * ✅ registering triggers a queued verification email
+      * ✅ send the mail using Sendgrid
+  * ✅ when a valid verification code is provided the user is registered and redirected to the login page
+  * ✅ a cleanup job must be run to remove unverified users after a certain amount of time
 
-### Allow **forgot password**
-  * add forgot password link to login page
-  * allow specifying email
-  * sending a forgot password email triggers a queued verification email
-  * when a valid verification code is provided the user is redirected to the registration page to provide a new password
-    * in this case we don't send the verification email since we already verified it
+### Allow **forgot password** ✅
+  * ✅ add forgot password link to login page
+  * ✅ allow specifying email
+  * ✅ sending a forgot password email triggers a queued verification email
+  * ✅ when a valid verification code is provided the user is redirected to the registration page to provide a new password
+    * ✅ in this case we don't send the verification email since we already verified it
 
-### Allow **delete account**
-  * we need either a link to a delete account page or a general settings page
-  * clicking on the delete button triggers a queued verification email
-  * when a valid verification code is provided the user is deleted and redirected to the login page
+### Allow **delete account** ✅
+  * ✅ add delete account link to login page
+  * ✅ clicking on the delete button triggers a queued verification email
+  * ✅ when a valid verification code is provided the user is deleted and redirected to the login page
+  * ✅ cleanup of all user-related data (verification tokens, authorization codes)
 
-## Scopes and Claims
+## Scopes and Claims ❌
 
-* implement scopes and claims generically
-  * the DB structure should be generic, but we can consider hardcoding some of the scopes and claims
-  * what should we hardcode and what should we allow to be configured?
-  * don't need the profile scope for now
-  * we do need something like a "groups" scope that contains one claim called `groups` that contains a list of groups (do we store json strings or allow for actual lists?)
+We need to support our own services that require something like a set of 'groups' associated with a user so we can distinguish between various kinds of users with different capabilities. The way to implement that is with scopes and claims:
 
-## Refresh Tokens
+* ❌ implement scopes and claims generically
+  * ❌ Database Changes:
+    * ❌ Create tables for scopes and claims
+    * ❌ Create a table for storing claim values per user
+  * ❌ Configuration Changes:
+    * ❌ Add configuration for supported scopes and their associated claims
+  * ❌ Repository Layer Changes:
+    * ❌ Add methods for managing user claim values
+    * ❌ Add methods for managing scopes and claims
+  * ❌ Authorization Endpoint Changes:
+    * ❌ Validate requested scopes against configured scopes
+    * ❌ Store requested scopes with the authorization code
+  * ❌ Token Endpoint Changes:
+    * ❌ Generate claims based on requested scopes
+    * ❌ Include claims in ID token
+  * ❌ Testing:
+    * ❌ Add tests for scope validation
+    * ❌ Add tests for claims generation
+  * ❌ Documentation:
+    * ❌ Update OpenID configuration to include supported scopes
+    * ❌ Add documentation for supported scopes and claims
 
-* implement refresh tokens so clients can invalidate sessions
+## User Management CLI ❌
 
+Expand the existing createuser command into a comprehensive user management tool:
+
+* ❌ Rename `createuser` to `usermgmt` to reflect its broader purpose
+* ❌ Add subcommands:
+  * ❌ User Management:
+    * ❌ `create` - Create a new user (existing functionality)
+    * ❌ `delete` - Delete a user
+    * ❌ `list` - List all users
+    * ❌ `show` - Show details of a specific user
+    * ❌ `set-password` - Change a user's password
+  * ❌ Claim Management:
+    * ❌ `set-claim` - Set a claim value for a user
+    * ❌ `remove-claim` - Remove a claim value from a user
+    * ❌ `list-claims` - List all claims for a user
+  * ❌ Scope Management:
+    * ❌ `create-scope` - Create a new scope
+    * ❌ `delete-scope` - Delete a scope
+    * ❌ `list-scopes` - List all scopes
+    * ❌ `add-claim-to-scope` - Add a claim to a scope
+    * ❌ `remove-claim-from-scope` - Remove a claim from a scope
+    * ❌ `list-scope-claims` - List all claims for a scope
+* ❌ Add common flags:
+  * ❌ `--db` - Database file path
+  * ❌ `--username` - Username for operations
+  * ❌ `--json` - Output in JSON format
+* ❌ Add proper error handling and validation
+* ❌ Add documentation for each subcommand
