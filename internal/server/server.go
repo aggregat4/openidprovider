@@ -141,15 +141,47 @@ func (controller *Controller) jwks(c echo.Context) error {
 // openIdConfiguration returns the OpenID Connect configuration for this
 // server. See https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationResponse
 func (controller *Controller) openIdConfiguration(c echo.Context) error {
+	// Get all scopes from the database
+	scopes, err := controller.Store.ListScopes()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get scopes"})
+	}
+
+	// Get all claims from the database
+	claimsMap := make(map[string]bool)
+	for _, scope := range scopes {
+		scopeClaims, err := controller.Store.ListScopeClaims(scope.Name)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get scope claims"})
+		}
+		for _, claim := range scopeClaims {
+			claimsMap[claim.ClaimName] = true
+		}
+	}
+
+	// Convert scopes to slice of names
+	scopesSupported := make([]string, len(scopes))
+	for i, scope := range scopes {
+		scopesSupported[i] = scope.Name
+	}
+
+	// Convert claims map to slice
+	claimsSupported := make([]string, 0, len(claimsMap))
+	for claim := range claimsMap {
+		claimsSupported = append(claimsSupported, claim)
+	}
+
 	c.Response().Header().Set("Content-Type", ContentTypeJson)
 	return c.JSON(http.StatusOK, domain.OpenIdConfiguration{
 		Issuer:                           controller.Config.BaseUrl,
 		AuthorizationEndpoint:            controller.Config.BaseUrl + "/authorize",
 		TokenEndpoint:                    controller.Config.BaseUrl + "/token",
 		JwksUri:                          controller.Config.BaseUrl + "/.well-known/jwks.json",
-		ResponseTypesSupported:           []string{"code", "id_token"},
+		ResponseTypesSupported:           []string{"code"},
 		SubjectTypesSupported:            []string{"public"},
 		IdTokenSigningAlgValuesSupported: []string{"RS256"},
+		ScopesSupported:                  scopesSupported,
+		ClaimsSupported:                  claimsSupported,
 	})
 }
 
@@ -223,35 +255,61 @@ func (controller *Controller) token(c echo.Context) error {
 		return sendOauthAccessTokenError(c, "invalid_grant")
 	}
 
+	// Get the user
+	user, err := controller.Store.FindUser(existingCode.Email)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+	if user == nil {
+		return sendOauthAccessTokenError(c, "invalid_grant")
+	}
+
+	// Parse requested scopes
+	requestedScopes := strings.Split(existingCode.Scopes, " ")
+
+	// Get claims for the requested scopes
+	claims, err := controller.Store.GetUserClaimsForScopes(user.Id, requestedScopes)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal error")
+	}
+
+	// Convert claims to map for ID token
+	claimsMap := make(map[string]interface{})
+	for _, claim := range claims {
+		claimsMap[claim.ClaimName] = claim.Value
+	}
+
 	// Finally, generate the access token
 	accessToken := uuid.New().String()
-	// TODO: figure out what I need to store for access tokens so I can fulfill the requirements for the UserInfo Endpoint
-	// _, err = db.Exec("INSERT INTO access_tokens (access_token, username, client_id, created) VALUES (?, ?, ?, ?)", accessToken, codeUsername, clientId, time.Now().Unix())
-	// if err != nil {
-	// 	return c.String(http.StatusInternalServerError, "Internal error")
-	// }
 
 	// Respond with the access token
 	c.Response().Header().Set("Content-Type", ContentTypeJson)
 	c.Response().Header().Set("Cache-Control", "no-store")
-	idToken, err := GenerateIdToken(controller.Config.JwtConfig, clientId, existingCode.Email)
+	idToken, err := GenerateIdToken(controller.Config.JwtConfig, clientId, user.Email, claimsMap)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
-	// TODO: figure out if I want to set the expires_in parameter
 	return c.String(http.StatusOK,
 		"{\"access_token\":\""+accessToken+"\", \"token_type\":\"Bearer\", \"id_token\":\""+idToken+"\"}")
 }
 
 // GenerateIdToken See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
-func GenerateIdToken(jwtConfig domain.JwtConfiguration, clientId string, userName string) (string, error) {
-	t := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+func GenerateIdToken(jwtConfig domain.JwtConfiguration, clientId string, userName string, claims map[string]interface{}) (string, error) {
+	// Start with standard claims
+	tokenClaims := jwt.MapClaims{
 		"iss": jwtConfig.Issuer,
 		"sub": userName,
 		"aud": clientId,
 		"exp": time.Now().Add(time.Minute * time.Duration(jwtConfig.IdTokenValidityMinutes)).Unix(),
 		"iat": time.Now().Unix(),
-	})
+	}
+
+	// Add any additional claims
+	for key, value := range claims {
+		tokenClaims[key] = value
+	}
+
+	t := jwt.NewWithClaims(jwt.SigningMethodRS256, tokenClaims)
 	return t.SignedString(jwtConfig.PrivateKey)
 }
 
@@ -282,11 +340,23 @@ func (controller *Controller) authorize(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Redirect URI is not registered for client")
 	}
 
+	// Validate requested scopes against database
+	for _, scope := range authReqScopes {
+		scopeExists, err := controller.Store.ScopeExists(scope)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, "Internal error")
+		}
+		if !scopeExists {
+			return sendOauthError(c, &url.URL{Path: authReqRedirectUri}, "invalid_scope", "Invalid scope requested", authReqState)
+		}
+	}
+
 	// All is well, redirect to login page with parameters
-	loginUrl := fmt.Sprintf("/login?client_id=%s&redirect_uri=%s&state=%s",
+	loginUrl := fmt.Sprintf("/login?client_id=%s&redirect_uri=%s&state=%s&scope=%s",
 		url.QueryEscape(authReqClientId),
 		url.QueryEscape(authReqRedirectUri),
-		url.QueryEscape(authReqState))
+		url.QueryEscape(authReqState),
+		url.QueryEscape(strings.Join(authReqScopes, " ")))
 
 	return c.Redirect(http.StatusFound, loginUrl)
 }
@@ -320,6 +390,7 @@ func (controller *Controller) login(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid redirect URI")
 	}
 	state := c.FormValue("state")
+	scopes := c.FormValue("scope")
 	client, clientExists := controller.Config.RegisteredClients[clientId]
 	if !clientExists {
 		return c.String(http.StatusBadRequest, "Client does not exist")
@@ -356,7 +427,14 @@ func (controller *Controller) login(c echo.Context) error {
 		// See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
 		// See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
 		code := uuid.New().String()
-		err := controller.Store.SaveCode(repository.Code{Code: code, Email: user.Email, ClientId: clientId, RedirectUri: redirectUri, Created: time.Now().Unix()})
+		err := controller.Store.SaveCode(repository.Code{
+			Code:        code,
+			Email:       user.Email,
+			ClientId:    clientId,
+			RedirectUri: redirectUri,
+			Created:     time.Now().Unix(),
+			Scopes:      scopes,
+		})
 		if err != nil {
 			return sendInternalError(c, err, fullRedirectUri, state)
 		}

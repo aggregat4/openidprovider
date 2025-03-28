@@ -69,6 +69,68 @@ var mymigrations = []migrations.Migration{
 		CREATE INDEX idx_verification_tokens_expires ON verification_tokens(expires);
 		`,
 	},
+	{
+		SequenceId: 4,
+		Sql: `
+		-- Create tables for scopes and claims
+		CREATE TABLE IF NOT EXISTS scopes (
+			scope_name TEXT NOT NULL PRIMARY KEY,
+			description TEXT,
+			created_at INTEGER NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS scope_claims (
+			scope_name TEXT NOT NULL,
+			claim_name TEXT NOT NULL,
+			description TEXT,
+			created_at INTEGER NOT NULL,
+			PRIMARY KEY (scope_name, claim_name),
+			FOREIGN KEY (scope_name) REFERENCES scopes(scope_name)
+		);
+
+		CREATE TABLE IF NOT EXISTS user_claims (
+			user_id INTEGER NOT NULL,
+			claim_name TEXT NOT NULL,
+			claim_value TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			PRIMARY KEY (user_id, claim_name),
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		);
+
+		-- Add scopes column to codes table to store requested scopes
+		ALTER TABLE codes ADD COLUMN scopes TEXT NOT NULL DEFAULT 'openid';
+
+		-- Insert default scopes
+		INSERT OR IGNORE INTO scopes (scope_name, description, created_at) VALUES
+			('openid', 'OpenID Connect scope', unixepoch()),
+			('profile', 'Profile information scope', unixepoch()),
+			('email', 'Email information scope', unixepoch())
+		);
+
+		-- Insert default claims for standard scopes
+		INSERT OR IGNORE INTO scope_claims (scope_name, claim_name, description, created_at) VALUES
+			('openid', 'sub', 'Subject identifier', unixepoch()),
+			('openid', 'iss', 'Issuer identifier', unixepoch()),
+			('openid', 'aud', 'Audience identifier', unixepoch()),
+			('openid', 'exp', 'Expiration time', unixepoch()),
+			('openid', 'iat', 'Issued at time', unixepoch()),
+			('profile', 'name', 'Full name', unixepoch()),
+			('profile', 'family_name', 'Family name', unixepoch()),
+			('profile', 'given_name', 'Given name', unixepoch()),
+			('profile', 'middle_name', 'Middle name', unixepoch()),
+			('profile', 'nickname', 'Nickname', unixepoch()),
+			('profile', 'preferred_username', 'Preferred username', unixepoch()),
+			('profile', 'picture', 'Profile picture URL', unixepoch()),
+			('profile', 'website', 'Website URL', unixepoch()),
+			('profile', 'gender', 'Gender', unixepoch()),
+			('profile', 'birthdate', 'Birth date', unixepoch()),
+			('profile', 'zoneinfo', 'Time zone', unixepoch()),
+			('profile', 'locale', 'Locale', unixepoch()),
+			('profile', 'updated_at', 'Last updated timestamp', unixepoch()),
+			('email', 'email', 'Email address', unixepoch()),
+			('email', 'email_verified', 'Email verification status', unixepoch());
+		`,
+	},
 }
 
 type Store struct {
@@ -89,6 +151,7 @@ type Code struct {
 	ClientId    string
 	RedirectUri string
 	Created     int64
+	Scopes      string // Space-separated list of scopes
 }
 
 type VerificationToken struct {
@@ -97,6 +160,27 @@ type VerificationToken struct {
 	Type    string
 	Created int64
 	Expires int64
+}
+
+// Add new types for scopes and claims
+type Scope struct {
+	Name        string
+	Description string
+	CreatedAt   int64
+}
+
+type ScopeClaim struct {
+	ScopeName   string
+	ClaimName   string
+	Description string
+	CreatedAt   int64
+}
+
+type UserClaim struct {
+	UserId    int64
+	ClaimName string
+	Value     string
+	CreatedAt int64
 }
 
 func CreateFileDbUrl(dbName string) string {
@@ -145,7 +229,7 @@ func (store *Store) CreateUser(email, hashedPassword string) error {
 }
 
 func (store *Store) FindCode(code string) (*Code, error) {
-	rows, err := store.db.Query("SELECT email, client_id, redirect_uri, created FROM codes WHERE code = ?", code)
+	rows, err := store.db.Query("SELECT email, client_id, redirect_uri, created, scopes FROM codes WHERE code = ?", code)
 	if err != nil {
 		return nil, err
 	}
@@ -155,11 +239,12 @@ func (store *Store) FindCode(code string) (*Code, error) {
 		var clientId string
 		var redirectUri string
 		var created int64
-		err = rows.Scan(&email, &clientId, &redirectUri, &created)
+		var scopes string
+		err = rows.Scan(&email, &clientId, &redirectUri, &created, &scopes)
 		if err != nil {
 			return nil, err
 		}
-		return &Code{code, email, clientId, redirectUri, created}, nil
+		return &Code{code, email, clientId, redirectUri, created, scopes}, nil
 	}
 	return nil, nil
 }
@@ -170,7 +255,7 @@ func (store *Store) DeleteCode(code string) error {
 }
 
 func (store *Store) SaveCode(code Code) error {
-	_, err := store.db.Exec("INSERT INTO codes (code, email, client_id, redirect_uri, created) VALUES (?, ?, ?, ?, ?)", code.Code, code.Email, code.ClientId, code.RedirectUri, code.Created)
+	_, err := store.db.Exec("INSERT INTO codes (code, email, client_id, redirect_uri, created, scopes) VALUES (?, ?, ?, ?, ?, ?)", code.Code, code.Email, code.ClientId, code.RedirectUri, code.Created, code.Scopes)
 	return err
 }
 
@@ -343,4 +428,189 @@ func (store *Store) DeleteUser(email string) error {
 	}
 
 	return tx.Commit()
+}
+
+// Scope Management Methods
+func (store *Store) CreateScope(scope Scope) error {
+	_, err := store.db.Exec(
+		"INSERT INTO scopes (scope_name, description, created_at) VALUES (?, ?, ?)",
+		scope.Name, scope.Description, scope.CreatedAt,
+	)
+	return err
+}
+
+func (store *Store) DeleteScope(scopeName string) error {
+	_, err := store.db.Exec("DELETE FROM scopes WHERE scope_name = ?", scopeName)
+	return err
+}
+
+func (store *Store) ListScopes() ([]Scope, error) {
+	rows, err := store.db.Query("SELECT scope_name, description, created_at FROM scopes")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var scopes []Scope
+	for rows.Next() {
+		var scope Scope
+		err = rows.Scan(&scope.Name, &scope.Description, &scope.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		scopes = append(scopes, scope)
+	}
+	return scopes, nil
+}
+
+func (store *Store) GetScope(scopeName string) (*Scope, error) {
+	rows, err := store.db.Query("SELECT scope_name, description, created_at FROM scopes WHERE scope_name = ?", scopeName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var scope Scope
+		err = rows.Scan(&scope.Name, &scope.Description, &scope.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		return &scope, nil
+	}
+	return nil, nil
+}
+
+// Scope Claims Management Methods
+func (store *Store) AddClaimToScope(claim ScopeClaim) error {
+	_, err := store.db.Exec(
+		"INSERT INTO scope_claims (scope_name, claim_name, description, created_at) VALUES (?, ?, ?, ?)",
+		claim.ScopeName, claim.ClaimName, claim.Description, claim.CreatedAt,
+	)
+	return err
+}
+
+func (store *Store) RemoveClaimFromScope(scopeName, claimName string) error {
+	_, err := store.db.Exec("DELETE FROM scope_claims WHERE scope_name = ? AND claim_name = ?", scopeName, claimName)
+	return err
+}
+
+func (store *Store) ListScopeClaims(scopeName string) ([]ScopeClaim, error) {
+	rows, err := store.db.Query(
+		"SELECT scope_name, claim_name, description, created_at FROM scope_claims WHERE scope_name = ?",
+		scopeName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var claims []ScopeClaim
+	for rows.Next() {
+		var claim ScopeClaim
+		err = rows.Scan(&claim.ScopeName, &claim.ClaimName, &claim.Description, &claim.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		claims = append(claims, claim)
+	}
+	return claims, nil
+}
+
+// User Claims Management Methods
+func (store *Store) SetUserClaim(claim UserClaim) error {
+	_, err := store.db.Exec(
+		"INSERT OR REPLACE INTO user_claims (user_id, claim_name, claim_value, created_at) VALUES (?, ?, ?, ?)",
+		claim.UserId, claim.ClaimName, claim.Value, claim.CreatedAt,
+	)
+	return err
+}
+
+func (store *Store) RemoveUserClaim(userId int64, claimName string) error {
+	_, err := store.db.Exec("DELETE FROM user_claims WHERE user_id = ? AND claim_name = ?", userId, claimName)
+	return err
+}
+
+func (store *Store) GetUserClaims(userId int64) ([]UserClaim, error) {
+	rows, err := store.db.Query(
+		"SELECT user_id, claim_name, claim_value, created_at FROM user_claims WHERE user_id = ?",
+		userId,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var claims []UserClaim
+	for rows.Next() {
+		var claim UserClaim
+		err = rows.Scan(&claim.UserId, &claim.ClaimName, &claim.Value, &claim.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		claims = append(claims, claim)
+	}
+	return claims, nil
+}
+
+func (store *Store) GetUserClaim(userId int64, claimName string) (*UserClaim, error) {
+	rows, err := store.db.Query(
+		"SELECT user_id, claim_name, claim_value, created_at FROM user_claims WHERE user_id = ? AND claim_name = ?",
+		userId, claimName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var claim UserClaim
+		err = rows.Scan(&claim.UserId, &claim.ClaimName, &claim.Value, &claim.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		return &claim, nil
+	}
+	return nil, nil
+}
+
+// Helper method to get all claims for a user based on requested scopes
+func (store *Store) GetUserClaimsForScopes(userId int64, scopes []string) ([]UserClaim, error) {
+	// First get all claims associated with the requested scopes
+	scopeClaims := make(map[string]bool)
+	for _, scope := range scopes {
+		claims, err := store.ListScopeClaims(scope)
+		if err != nil {
+			return nil, err
+		}
+		for _, claim := range claims {
+			scopeClaims[claim.ClaimName] = true
+		}
+	}
+
+	// Then get all user claims
+	allClaims, err := store.GetUserClaims(userId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter claims to only include those associated with requested scopes
+	var filteredClaims []UserClaim
+	for _, claim := range allClaims {
+		if scopeClaims[claim.ClaimName] {
+			filteredClaims = append(filteredClaims, claim)
+		}
+	}
+
+	return filteredClaims, nil
+}
+
+// ScopeExists checks if a scope exists in the database
+func (store *Store) ScopeExists(scopeName string) (bool, error) {
+	var count int
+	err := store.db.QueryRow("SELECT COUNT(*) FROM scopes WHERE scope_name = ?", scopeName).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
