@@ -10,6 +10,7 @@ import (
 
 	"github.com/aggregat4/go-baselib/crypto"
 
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -188,7 +189,10 @@ func TestLoginPageGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Equal(t, 405, res.StatusCode)
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, strings.ToLower(body), "method=\"post\"")
+	assert.Contains(t, body, "action=\"/login\"")
 }
 
 func setRequiredFormPostHeaders(req *http.Request) {
@@ -198,7 +202,7 @@ func setRequiredFormPostHeaders(req *http.Request) {
 
 func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
 	// We need to authorize first so we get redirected to the login page
-	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
+	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid profile&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -217,6 +221,7 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 	data.Set("password", password)
 	data.Set("redirecturi", TestRedirectUri)
 	data.Set("state", TestState)
+	data.Set("scope", "openid profile")
 	req, err = http.NewRequest("POST", LoginUrl, strings.NewReader(data.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -323,7 +328,7 @@ func TestLoginAndFetchToken(t *testing.T) {
 
 func TestGenerateValidIdToken(t *testing.T) {
 	loadKeys(t)
-	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TestClientid, TestUsername)
+	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TestClientid, TestUsername, map[string]interface{}{})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -346,7 +351,7 @@ func TestGenerateIdTokenWithWrongSecret(t *testing.T) {
 		IdTokenValidityMinutes: 5,
 		PrivateKey:             wrongKey,
 		PublicKey:              nil,
-	}, TestClientid, TestUsername)
+	}, TestClientid, TestUsername, map[string]interface{}{})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 	_, err = decodeIdTokenClaims(token, serverConfig.JwtConfig.PublicKey)
@@ -936,4 +941,171 @@ func TestVerifyDeleteSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Nil(t, user, "User should have been deleted")
+}
+
+func TestAuthorizeWithInvalidScope(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid invalid_scope&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, "error=invalid_scope")
+}
+
+func TestAuthorizeWithValidScopes(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid profile&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, "/login")
+}
+
+func TestIdTokenWithClaims(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	// Create and verify a test user
+	createTestUser(t, controller)
+	err := controller.Store.VerifyUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set some test claims for the user
+	user, err := controller.Store.FindUser(TestUsername)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.SetUserClaim(repository.UserClaim{
+		UserId:    user.Id,
+		ClaimName: "name",
+		Value:     "Test User",
+		CreatedAt: time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Perform authorization and login
+	client := createTestHttpClient()
+	res := performAuthorizeAndLogin(t, client, TestPassword)
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, TestRedirectUri)
+	assert.NotContains(t, locationHeader, "error=")
+	assert.Contains(t, locationHeader, "code=")
+
+	// Extract the code
+	parsedUrl, err := url.Parse(locationHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, err := url.ParseQuery(parsedUrl.RawQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := params.Get("code")
+
+	// Exchange code for token
+	data := url.Values{}
+	data.Set("grant_type", "authorization_code")
+	data.Set("code", code)
+	data.Set("redirect_uri", TestRedirectUri)
+	req, _ := http.NewRequest("POST", "http://localhost:1323/token", strings.NewReader(data.Encode()))
+	req.SetBasicAuth(TestClientid, TestSecret)
+	setRequiredFormPostHeaders(req)
+	res, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 200, res.StatusCode)
+
+	// Parse the response
+	var tokenResponse struct {
+		IdToken string `json:"id_token"`
+	}
+	err = json.NewDecoder(res.Body).Decode(&tokenResponse)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Decode and verify the ID token
+	claims, err := decodeIdTokenClaims(tokenResponse.IdToken, serverConfig.JwtConfig.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify standard claims
+	assert.Equal(t, serverConfig.JwtConfig.Issuer, claims["iss"])
+	assert.Equal(t, TestUsername, claims["sub"])
+	assert.Equal(t, TestClientid, claims["aud"])
+
+	// Verify custom claims
+	assert.Equal(t, "Test User", claims["name"])
+}
+
+func TestOpenIdConfiguration(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	client := &http.Client{}
+	res, err := client.Get("http://localhost:1323/.well-known/openid-configuration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 200, res.StatusCode)
+
+	var config domain.OpenIdConfiguration
+	err = json.NewDecoder(res.Body).Decode(&config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify standard endpoints
+	assert.Equal(t, "http://localhost:1323", config.Issuer)
+	assert.Equal(t, "http://localhost:1323/authorize", config.AuthorizationEndpoint)
+	assert.Equal(t, "http://localhost:1323/token", config.TokenEndpoint)
+	assert.Equal(t, "http://localhost:1323/.well-known/jwks.json", config.JwksUri)
+
+	// Verify response types
+	assert.Contains(t, config.ResponseTypesSupported, "code")
+
+	// Verify subject types
+	assert.Contains(t, config.SubjectTypesSupported, "public")
+
+	// Verify signing algorithms
+	assert.Contains(t, config.IdTokenSigningAlgValuesSupported, "RS256")
+
+	// Verify scopes
+	assert.Contains(t, config.ScopesSupported, "openid")
+	assert.Contains(t, config.ScopesSupported, "profile")
+	assert.Contains(t, config.ScopesSupported, "email")
+
+	// Verify claims
+	assert.Contains(t, config.ClaimsSupported, "sub")
+	assert.Contains(t, config.ClaimsSupported, "name")
+	assert.Contains(t, config.ClaimsSupported, "email")
 }

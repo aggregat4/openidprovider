@@ -326,28 +326,41 @@ func (controller *Controller) authorize(c echo.Context) error {
 	authReqRedirectUri := getParam(c, "redirect_uri")
 	authReqState := getParam(c, "state")
 
-	// Do basic validation whether required parameters are present first and respond with bad request if not
-	if len(authReqScopes) == 0 || !contains(authReqScopes, "openid") || authReqResponseType != "code" || authReqClientId == "" || authReqRedirectUri == "" {
-		return c.String(http.StatusBadRequest, "Missing required parameters")
-	}
-
-	// Validate the client and redirect URI
+	// First validate the client and redirect URI before using it for error responses
 	client, clientExists := controller.Config.RegisteredClients[authReqClientId]
 	if !clientExists {
-		return c.String(http.StatusBadRequest, "Client does not exist")
+		return c.String(http.StatusBadRequest, "Invalid client")
 	}
+
+	// Create redirect URL for error responses
+	redirectUrl, err := url.Parse(authReqRedirectUri)
+	if err != nil {
+		return c.String(http.StatusBadRequest, "Invalid redirect URI")
+	}
+
+	// Validate that the redirect URI is registered for the client
 	if !contains(client.RedirectUris, authReqRedirectUri) {
-		return c.String(http.StatusBadRequest, "Redirect URI is not registered for client")
+		return c.String(http.StatusBadRequest, "Invalid redirect URI")
+	}
+
+	// Now we can use the redirect URI for error responses
+	// Do basic validation whether required parameters are present first
+	if len(authReqScopes) == 0 || !contains(authReqScopes, "openid") {
+		return sendOauthError(c, redirectUrl, "invalid_scope", "Missing or invalid scope", authReqState)
+	}
+
+	if authReqResponseType != "code" {
+		return sendOauthError(c, redirectUrl, "unsupported_response_type", "Only code response type is supported", authReqState)
 	}
 
 	// Validate requested scopes against database
 	for _, scope := range authReqScopes {
 		scopeExists, err := controller.Store.ScopeExists(scope)
 		if err != nil {
-			return c.String(http.StatusInternalServerError, "Internal error")
+			return sendInternalError(c, err, redirectUrl, authReqState)
 		}
 		if !scopeExists {
-			return sendOauthError(c, &url.URL{Path: authReqRedirectUri}, "invalid_scope", "Invalid scope requested", authReqState)
+			return sendOauthError(c, redirectUrl, "invalid_scope", "Invalid scope requested: "+scope, authReqState)
 		}
 	}
 
@@ -373,6 +386,7 @@ type LoginPage struct {
 	ClientId    string
 	RedirectUri string
 	State       string
+	Scope       string
 }
 
 // Login will return normal BAD REQUEST HTTP status codes for all errors pertaining to client id and redirecturi
@@ -385,71 +399,106 @@ func (controller *Controller) login(c echo.Context) error {
 	logger.Info("login request received")
 	clientId := c.FormValue("clientid")
 	redirectUri := c.FormValue("redirecturi")
-	fullRedirectUri, err := url.Parse(redirectUri)
-	if err != nil {
-		return c.String(http.StatusBadRequest, "Invalid redirect URI")
-	}
 	state := c.FormValue("state")
 	scopes := c.FormValue("scope")
-	client, clientExists := controller.Config.RegisteredClients[clientId]
-	if !clientExists {
-		return c.String(http.StatusBadRequest, "Client does not exist")
-	}
-	// Validate that the redirect URI is registered for the client
-	if !contains(client.RedirectUris, redirectUri) {
-		return c.String(http.StatusBadRequest, "Redirect URI is not registered for client")
-	}
 	username := c.FormValue("username")
 	password := c.FormValue("password")
 
-	logger.Info("login request validated")
+	// Check if this is an OAuth flow by checking if client_id and redirect_uri are present
+	isOAuthFlow := clientId != "" && redirectUri != ""
 
-	// find the user and validate password
+	if isOAuthFlow {
+		return controller.handleOAuthLogin(c, clientId, redirectUri, state, scopes, username, password)
+	}
+	return controller.handleRegularLogin(c, username, password)
+}
+
+func (controller *Controller) handleRegularLogin(c echo.Context, username, password string) error {
+	// Basic validation
+	if username == "" || password == "" {
+		return c.String(http.StatusBadRequest, "Missing credentials")
+	}
+
+	// Validate credentials
+	valid, err := controller.validateCredentials(username, password)
+	if err != nil {
+		logger.Error("Error validating credentials", "error", err)
+		return c.String(http.StatusInternalServerError, "Internal server error")
+	}
+	if !valid {
+		return c.String(http.StatusUnauthorized, "Invalid credentials")
+	}
+
+	// TODO: Set session cookie or handle direct web login success
+	return c.Redirect(http.StatusFound, "/")
+}
+
+func (controller *Controller) handleOAuthLogin(c echo.Context, clientId, redirectUri, state, scopes, username, password string) error {
+	// Create redirect URL for error responses
+	redirectUrl, err := url.Parse(redirectUri)
+	if err != nil {
+		return c.String(http.StatusBadRequest, "Invalid redirect URI")
+	}
+
+	// Basic validation
+	if username == "" || password == "" {
+		return sendOauthError(c, redirectUrl, "invalid_request", "Missing credentials", state)
+	}
+
+	// Validate credentials
+	valid, err := controller.validateCredentials(username, password)
+	if err != nil {
+		logger.Error("Error validating credentials", "error", err)
+		return sendInternalError(c, err, redirectUrl, state)
+	}
+	if !valid {
+		return sendOauthError(c, redirectUrl, "access_denied", "Invalid credentials", state)
+	}
+
+	// OAuth flow validation
+	client, clientExists := controller.Config.RegisteredClients[clientId]
+	if !clientExists {
+		return sendOauthError(c, redirectUrl, "invalid_client", "Client does not exist", state)
+	}
+
+	if !contains(client.RedirectUris, redirectUri) {
+		return sendOauthError(c, redirectUrl, "invalid_client", "Invalid redirect URI", state)
+	}
+
+	// Get user for OAuth flow
 	user, err := controller.Store.FindUser(username)
 	if err != nil {
-		return sendInternalError(c, err, fullRedirectUri, state)
+		return sendInternalError(c, err, redirectUrl, state)
 	}
+
 	if user == nil {
 		logger.Debug("User not found with username")
 		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
-		return sendOauthError(c, fullRedirectUri, "access_denied", "Invalid username or password", state)
+		return sendOauthError(c, redirectUrl, "access_denied", "Invalid username or password", state)
 	}
-	if !user.Verified {
-		logger.Debug("User not verified")
-		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
-		return sendOauthError(c, fullRedirectUri, "access_denied", "User not verified", state)
+
+	// Generate a code
+	// See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
+	// See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
+	code := uuid.New().String()
+	err = controller.Store.SaveCode(repository.Code{
+		Code:        code,
+		Email:       user.Email,
+		ClientId:    clientId,
+		RedirectUri: redirectUri,
+		Created:     time.Now().Unix(),
+		Scopes:      scopes,
+	})
+	if err != nil {
+		return sendInternalError(c, err, redirectUrl, state)
 	}
-	logger.Info("login request user found")
-	if crypto.CheckPasswordHash(password, user.Password) {
-		// See OIDC spec https://openid.net/specs/openid-connect-core-1_0.html#AuthResponse
 
-		// Generate a code
-		// See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2 for the oauth 2 spec on Authorization responses
-		// See also https://www.oauth.com/oauth2-servers/authorization/the-authorization-response/ for implementation hints
-		code := uuid.New().String()
-		err := controller.Store.SaveCode(repository.Code{
-			Code:        code,
-			Email:       user.Email,
-			ClientId:    clientId,
-			RedirectUri: redirectUri,
-			Created:     time.Now().Unix(),
-			Scopes:      scopes,
-		})
-		if err != nil {
-			return sendInternalError(c, err, fullRedirectUri, state)
-		}
-
-		query := fullRedirectUri.Query()
-		query.Add("code", code)
-		query.Add("state", state)
-		fullRedirectUri.RawQuery = query.Encode()
-		logger.Info("login request password ok. redirecting")
-		return c.Redirect(http.StatusFound, fullRedirectUri.String())
-	}
-	logger.Info("login request password not ok")
-
-	// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
-	return sendOauthError(c, fullRedirectUri, "access_denied", "Invalid username or password", state)
+	query := redirectUrl.Query()
+	query.Add("code", code)
+	query.Add("state", state)
+	redirectUrl.RawQuery = query.Encode()
+	logger.Info("login request password ok. redirecting")
+	return c.Redirect(http.StatusFound, redirectUrl.String())
 }
 
 func sendInternalError(c echo.Context, originalError error, fullRedirectUri *url.URL, state string) error {
@@ -666,14 +715,12 @@ func (controller *Controller) verify(c echo.Context) error {
 }
 
 func (controller *Controller) showLoginPage(c echo.Context) error {
-	if c.Request().Method == "GET" {
-		return echo.NewHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
-	}
 	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.Render(http.StatusOK, "login", LoginPage{
 		ClientId:    c.QueryParam("client_id"),
 		RedirectUri: c.QueryParam("redirect_uri"),
 		State:       c.QueryParam("state"),
+		Scope:       c.QueryParam("scope"),
 	})
 }
 
@@ -990,4 +1037,18 @@ func (controller *Controller) resendDeleteVerification(c echo.Context) error {
 	}
 
 	return c.Redirect(http.StatusFound, "/verify-delete?token="+token)
+}
+
+func (controller *Controller) validateCredentials(username, password string) (bool, error) {
+	user, err := controller.Store.FindUser(username)
+	if err != nil {
+		return false, fmt.Errorf("failed to find user: %w", err)
+	}
+	if user == nil {
+		return false, nil
+	}
+	if !user.Verified {
+		return false, nil
+	}
+	return crypto.CheckPasswordHash(password, user.Password), nil
 }
