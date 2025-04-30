@@ -104,8 +104,7 @@ var mymigrations = []migrations.Migration{
 		INSERT OR IGNORE INTO scopes (scope_name, description, created_at) VALUES
 			('openid', 'OpenID Connect scope', unixepoch()),
 			('profile', 'Profile information scope', unixepoch()),
-			('email', 'Email information scope', unixepoch())
-		);
+			('email', 'Email information scope', unixepoch());
 
 		-- Insert default claims for standard scopes
 		INSERT OR IGNORE INTO scope_claims (scope_name, claim_name, description, created_at) VALUES
