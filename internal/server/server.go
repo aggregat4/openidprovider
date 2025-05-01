@@ -85,7 +85,7 @@ func InitServer(controller Controller) *echo.Echo {
 	// CSRF protection middleware
 	e.Use(baselibmiddleware.CsrfMiddleware)
 
-e.GET("/status", controller.Status)
+	e.GET("/status", controller.Status)
 
 	// e.GET("/.well-known/openid-configuration", controller.openIdConfiguration)
 	e.GET("/.well-known/jwks.json", controller.jwks)
@@ -127,6 +127,7 @@ func (controller *Controller) Status(c echo.Context) error {
 // that can be used by clients to verify the signature of the ID token
 // as we are using the RS256 algorithm with public and private keys
 func (controller *Controller) jwks(c echo.Context) error {
+	logger.Info("jwks handler called")
 	jwks := jose.JSONWebKeySet{
 		Keys: make([]jose.JSONWebKey, 1),
 	}
@@ -148,6 +149,7 @@ func (controller *Controller) jwks(c echo.Context) error {
 // openIdConfiguration returns the OpenID Connect configuration for this
 // server. See https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationResponse
 func (controller *Controller) openIdConfiguration(c echo.Context) error {
+	logger.Info("openIdConfiguration handler called")
 	// Get all scopes from the database
 	scopes, err := controller.Store.ListScopes()
 	if err != nil {
@@ -196,6 +198,7 @@ func (controller *Controller) openIdConfiguration(c echo.Context) error {
 // HTTP Basic Auth. It sets the client ID on the context if valid.
 // It use subtle.ConstantTimeCompare to prevent timing attacks.
 func (controller *Controller) basicAuthValidator(username, password string, c echo.Context) (bool, error) {
+	logger.Info("basicAuthValidator called", "username", username)
 	client, clientExists := controller.Config.RegisteredClients[username]
 	// apparently the go Oauth2 client library url escapes the username and password
 	// This seems weird, and they talk about it here: https://github.com/golang/oauth2/pull/476
@@ -224,6 +227,7 @@ func (controller *Controller) basicAuthValidator(username, password string, c ec
 // https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 // Error handling as per https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
 func (controller *Controller) token(c echo.Context) error {
+	logger.Info("token handler called")
 	clientId := c.Get("client_id").(string)
 	// Validate that the client exists
 	client, clientExists := controller.Config.RegisteredClients[clientId]
@@ -327,6 +331,7 @@ func sendOauthAccessTokenError(c echo.Context, s string) error {
 
 // No support for "nonce", "display", "prompt", "max_age", "ui_locales", "id_token_hint", "login_hint", "acr_values" yet
 func (controller *Controller) authorize(c echo.Context) error {
+	logger.Info("authorize handler called")
 	authReqScopes := strings.Split(getParam(c, "scope"), " ")
 	authReqResponseType := getParam(c, "response_type")
 	authReqClientId := getParam(c, "client_id")
@@ -403,7 +408,7 @@ type LoginPage struct {
 // But since this treats a potential malicious client as a real client, this seems unwise? Or is it better
 // to return an OAuth error so the implementor of a buggy client can see what's wrong?
 func (controller *Controller) login(c echo.Context) error {
-	logger.Info("login request received")
+	logger.Info("login handler called")
 	clientId := c.FormValue("clientid")
 	redirectUri := c.FormValue("redirecturi")
 	// Check if this is an OAuth flow by checking if client_id and redirect_uri are present
@@ -429,6 +434,7 @@ func (controller *Controller) login(c echo.Context) error {
 }
 
 func (controller *Controller) handleRegularLogin(c echo.Context, username, password string) error {
+	logger.Info("handleRegularLogin called", "username", username)
 	// Basic validation
 	if username == "" || password == "" {
 		return c.String(http.StatusBadRequest, "Missing credentials")
@@ -449,6 +455,7 @@ func (controller *Controller) handleRegularLogin(c echo.Context, username, passw
 }
 
 func (controller *Controller) handleOAuthLogin(c echo.Context, clientId, redirectUri, state, scopes, username, password string) error {
+	logger.Info("handleOAuthLogin called", "clientId", clientId, "username", username)
 	// Create redirect URL for error responses
 	redirectUrl, err := url.Parse(redirectUri)
 	if err != nil {
@@ -580,6 +587,7 @@ type DeleteAccountPage struct {
 }
 
 func (controller *Controller) showRegisterPage(c echo.Context) error {
+	logger.Info("showRegisterPage handler called")
 	return c.Render(http.StatusOK, "register", RegisterPage{
 		Email:   c.FormValue("email"),
 		Error:   "",
@@ -588,6 +596,7 @@ func (controller *Controller) showRegisterPage(c echo.Context) error {
 }
 
 func (controller *Controller) register(c echo.Context) error {
+	logger.Info("register handler called")
 	email := c.FormValue("email")
 	password := c.FormValue("password")
 	confirmPassword := c.FormValue("confirmPassword")
@@ -669,6 +678,7 @@ func (controller *Controller) register(c echo.Context) error {
 }
 
 func (controller *Controller) showVerificationPage(c echo.Context) error {
+	logger.Info("showVerificationPage handler called")
 	token := c.QueryParam("token")
 	return c.Render(http.StatusBadRequest, "verify", VerifyPage{
 		Code:  token,
@@ -677,6 +687,7 @@ func (controller *Controller) showVerificationPage(c echo.Context) error {
 }
 
 func (controller *Controller) verify(c echo.Context) error {
+	logger.Info("verify handler called")
 	// get the token from the submitted form parameters
 	token := c.FormValue("code")
 
@@ -730,6 +741,7 @@ func (controller *Controller) verify(c echo.Context) error {
 }
 
 func (controller *Controller) showLoginPage(c echo.Context) error {
+	logger.Info("showLoginPage handler called")
 	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.Render(http.StatusOK, "login", LoginPage{
 		ClientId:    c.QueryParam("client_id"),
@@ -740,6 +752,7 @@ func (controller *Controller) showLoginPage(c echo.Context) error {
 }
 
 func (controller *Controller) showForgotPasswordPage(c echo.Context) error {
+	logger.Info("showForgotPasswordPage handler called")
 	return c.Render(http.StatusOK, "forgot-password", ForgotPasswordPage{
 		Email:   c.FormValue("email"),
 		Error:   "",
@@ -748,6 +761,7 @@ func (controller *Controller) showForgotPasswordPage(c echo.Context) error {
 }
 
 func (controller *Controller) forgotPassword(c echo.Context) error {
+	logger.Info("forgotPassword handler called")
 	email := c.FormValue("email")
 
 	// Basic validation
@@ -802,6 +816,7 @@ func (controller *Controller) forgotPassword(c echo.Context) error {
 }
 
 func (controller *Controller) showResetPasswordPage(c echo.Context) error {
+	logger.Info("showResetPasswordPage handler called")
 	token := c.QueryParam("token")
 	return c.Render(http.StatusOK, "reset-password", ResetPasswordPage{
 		Token: token,
@@ -809,6 +824,7 @@ func (controller *Controller) showResetPasswordPage(c echo.Context) error {
 }
 
 func (controller *Controller) resetPassword(c echo.Context) error {
+	logger.Info("resetPassword handler called")
 	token := c.FormValue("token")
 	password := c.FormValue("password")
 	confirmPassword := c.FormValue("confirmPassword")
@@ -884,10 +900,12 @@ func (controller *Controller) resetPassword(c echo.Context) error {
 }
 
 func (controller *Controller) showDeleteAccountPage(c echo.Context) error {
+	logger.Info("showDeleteAccountPage handler called")
 	return c.Render(http.StatusOK, "delete-account", DeleteAccountPage{})
 }
 
 func (controller *Controller) deleteAccount(c echo.Context) error {
+	logger.Info("deleteAccount handler called")
 	email := c.FormValue("email")
 	if email == "" {
 		return c.Render(http.StatusBadRequest, "delete-account", DeleteAccountPage{
@@ -946,6 +964,7 @@ type VerifyDeletePage struct {
 }
 
 func (controller *Controller) showVerifyDeletePage(c echo.Context) error {
+	logger.Info("showVerifyDeletePage handler called")
 	token := c.QueryParam("token")
 	return c.Render(http.StatusOK, "verify-delete", VerifyDeletePage{
 		Code:  token,
@@ -954,6 +973,7 @@ func (controller *Controller) showVerifyDeletePage(c echo.Context) error {
 }
 
 func (controller *Controller) verifyDelete(c echo.Context) error {
+	logger.Info("verifyDelete handler called")
 	token := c.FormValue("code")
 	if token == "" {
 		return c.Render(http.StatusBadRequest, "verify-delete", VerifyDeletePage{
@@ -1013,6 +1033,7 @@ func (controller *Controller) verifyDelete(c echo.Context) error {
 }
 
 func (controller *Controller) resendDeleteVerification(c echo.Context) error {
+	logger.Info("resendDeleteVerification handler called")
 	email := c.QueryParam("email")
 	if email == "" {
 		return c.Redirect(http.StatusFound, "/delete-account")
@@ -1055,6 +1076,7 @@ func (controller *Controller) resendDeleteVerification(c echo.Context) error {
 }
 
 func (controller *Controller) validateCredentials(username, password string) (bool, error) {
+	logger.Info("validateCredentials called", "username", username)
 	user, err := controller.Store.FindUser(username)
 	if err != nil {
 		return false, fmt.Errorf("failed to find user: %w", err)
