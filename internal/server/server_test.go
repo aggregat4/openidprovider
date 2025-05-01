@@ -174,28 +174,9 @@ func createAuthorizeUrl(t *testing.T, scopes string) *url.URL {
 	return authorizeUrl
 }
 
-func TestAuthorizeWithoutParameters(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
-	res, err := http.Get(AuthorizeUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assert.Equal(t, 400, res.StatusCode)
-}
-
-func TestAuthorize(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	authorizeUrl := createAuthorizeUrl(t, "openid")
-	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
+// Helper function to make a GET request and handle errors
+func makeGetRequest(t *testing.T, client *http.Client, url string) *http.Response {
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +184,37 @@ func TestAuthorize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return res
+}
+
+// Helper function to make a POST request with form data and handle errors
+func makePostRequest(t *testing.T, client *http.Client, url string, data url.Values) *http.Response {
+	req, err := http.NewRequest("POST", url, strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setRequiredFormPostHeaders(req)
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestAuthorizeWithoutParameters(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+	client := createTestHttpClient()
+	res := makeGetRequest(t, client, AuthorizeUrl)
+	assert.Equal(t, 400, res.StatusCode)
+}
+
+func TestAuthorize(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+	client := createTestHttpClient()
+	authorizeUrl := createAuthorizeUrl(t, "openid")
+	res := makeGetRequest(t, client, authorizeUrl.String())
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
 	assert.Contains(t, locationHeader, "/login")
@@ -214,22 +226,9 @@ func TestAuthorize(t *testing.T) {
 func TestAuthorizeWithInvalidScope(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
+	client := createTestHttpClient()
 	authorizeUrl := createAuthorizeUrl(t, "openid invalid_scope")
-	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := makeGetRequest(t, client, authorizeUrl.String())
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
 	assert.Contains(t, locationHeader, "error=invalid_scope")
@@ -238,22 +237,9 @@ func TestAuthorizeWithInvalidScope(t *testing.T) {
 func TestAuthorizeWithValidScopes(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
+	client := createTestHttpClient()
 	authorizeUrl := createAuthorizeUrl(t, "openid profile")
-	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := makeGetRequest(t, client, authorizeUrl.String())
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
 	assert.Contains(t, locationHeader, "/login")
@@ -261,14 +247,7 @@ func TestAuthorizeWithValidScopes(t *testing.T) {
 
 func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
 	authorizeUrl := createAuthorizeUrl(t, "openid profile")
-	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := makeGetRequest(t, client, authorizeUrl.String())
 	assert.Equal(t, 302, res.StatusCode)
 	locationHeader := res.Header.Get("Location")
 	assert.Contains(t, locationHeader, "/login")
@@ -284,25 +263,15 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 	data.Set("redirecturi", TestRedirectUri)
 	data.Set("state", TestState)
 	data.Set("scope", "openid profile")
-	req, err = http.NewRequest("POST", LoginUrl, strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
-	res, err = client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return res
+	return makePostRequest(t, client, LoginUrl, data)
 }
 
 func TestLoginPageGet(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-	res, err := http.Get(LoginUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
+
+	client := &http.Client{}
+	res := makeGetRequest(t, client, LoginUrl)
 	assert.Equal(t, 200, res.StatusCode)
 	body := readBody(res)
 	assert.Contains(t, strings.ToLower(body), "method=\"post\"")
@@ -341,11 +310,7 @@ func TestLoginWithWrongPassword(t *testing.T) {
 func TestLoginWithExistingUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-	createTestUser(t, controller)
-	err := controller.Store.VerifyUser(TestUsername)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TestPassword)
 	// assert that we redirected to the client with a code
@@ -360,11 +325,7 @@ func TestLoginWithExistingUser(t *testing.T) {
 func TestLoginAndFetchToken(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-	createTestUser(t, controller)
-	err := controller.Store.VerifyUser(TestUsername)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TestPassword)
 	// assert that we redirected to the client with a code and no error
@@ -392,7 +353,7 @@ func TestLoginAndFetchToken(t *testing.T) {
 	data.Set("code", code)
 	data.Set("redirect_uri", TestRedirectUri)
 
-	tokenUrl, err := url.Parse("http://localhost:1323/token")
+	tokenUrl, err := createEndpointUrl("/token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,20 +481,6 @@ func createEndpointUrl(endpoint string) (*url.URL, error) {
 	return url.Parse("http://localhost:1323" + endpoint)
 }
 
-// Helper function to create a POST request with form data
-func createPostRequest(t *testing.T, endpoint string, data url.Values) *http.Request {
-	endpointUrl, err := createEndpointUrl(endpoint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req, err := http.NewRequest("POST", endpointUrl.String(), strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
-	return req
-}
-
 // Helper function to create a test user
 func createTestUserWithPassword(t *testing.T, controller server.Controller, username, password string) {
 	hashedPassword, err := crypto.HashPassword(password)
@@ -588,12 +535,7 @@ func TestForgotPasswordWithNonExistentUser(t *testing.T) {
 	data := url.Values{}
 	data.Set("email", "nonexistent@example.com")
 
-	req := createPostRequest(t, "/forgot-password", data)
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	res := makePostRequest(t, client, "http://localhost:1323/forgot-password", data)
 	assert.Equal(t, 200, res.StatusCode)
 	body := readBody(res)
 	assert.Contains(t, body, "If an account exists with this email")
@@ -609,12 +551,7 @@ func TestForgotPasswordWithUnverifiedUser(t *testing.T) {
 	data := url.Values{}
 	data.Set("email", TestUsername)
 
-	req := createPostRequest(t, "/forgot-password", data)
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	res := makePostRequest(t, client, "http://localhost:1323/forgot-password", data)
 	assert.Equal(t, 200, res.StatusCode)
 	body := readBody(res)
 	assert.Contains(t, body, "If an account exists with this email")
@@ -630,12 +567,7 @@ func TestForgotPasswordWithVerifiedUser(t *testing.T) {
 	data := url.Values{}
 	data.Set("email", TestUsername)
 
-	req := createPostRequest(t, "/forgot-password", data)
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	res := makePostRequest(t, client, "http://localhost:1323/forgot-password", data)
 	assert.Equal(t, 200, res.StatusCode)
 	body := readBody(res)
 	assert.Contains(t, body, "If an account exists with this email")
@@ -659,12 +591,7 @@ func TestResetPasswordWithInvalidToken(t *testing.T) {
 	data.Set("password", "newpassword")
 	data.Set("confirmPassword", "newpassword")
 
-	req := createPostRequest(t, "/reset-password", data)
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	res := makePostRequest(t, client, "http://localhost:1323/reset-password", data)
 	assert.Equal(t, 400, res.StatusCode)
 	body := readBody(res)
 	assert.Contains(t, body, "Invalid or expired reset link")
@@ -687,12 +614,7 @@ func TestResetPasswordWithExpiredToken(t *testing.T) {
 	data.Set("password", "newpassword")
 	data.Set("confirmPassword", "newpassword")
 
-	req := createPostRequest(t, "/reset-password", data)
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	res := makePostRequest(t, client, "http://localhost:1323/reset-password", data)
 	assert.Equal(t, 400, res.StatusCode)
 	body := readBody(res)
 	assert.Contains(t, body, "Reset link has expired")
@@ -717,12 +639,7 @@ func TestResetPasswordSuccess(t *testing.T) {
 	data.Set("password", newPassword)
 	data.Set("confirmPassword", newPassword)
 
-	req := createPostRequest(t, "/reset-password", data)
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	res := makePostRequest(t, client, "http://localhost:1323/reset-password", data)
 	assert.Equal(t, 200, res.StatusCode)
 	body := readBody(res)
 	assert.Contains(t, body, "Password has been reset successfully")
@@ -849,12 +766,8 @@ func TestDeleteAccountWithNonExistentUser(t *testing.T) {
 	data := url.Values{}
 	data.Set("email", "nonexistent@example.com")
 
-	req := createPostRequest(t, "/delete-account", data)
 	client := createTestHttpClient()
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := makePostRequest(t, client, "http://localhost:1323/delete-account", data)
 	assert.Equal(t, 200, res.StatusCode)
 }
 
@@ -866,12 +779,8 @@ func TestDeleteAccountWithUnverifiedUser(t *testing.T) {
 	data := url.Values{}
 	data.Set("email", TestUsername)
 
-	req := createPostRequest(t, "/delete-account", data)
 	client := createTestHttpClient()
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := makePostRequest(t, client, "http://localhost:1323/delete-account", data)
 	assert.Equal(t, 200, res.StatusCode)
 }
 
@@ -883,12 +792,8 @@ func TestDeleteAccountWithVerifiedUser(t *testing.T) {
 	data := url.Values{}
 	data.Set("email", TestUsername)
 
-	req := createPostRequest(t, "/delete-account", data)
 	client := createTestHttpClient()
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := makePostRequest(t, client, "http://localhost:1323/delete-account", data)
 	assert.Equal(t, 200, res.StatusCode)
 
 	// Verify that a delete account email was sent
@@ -910,12 +815,8 @@ func TestVerifyDeleteWithInvalidToken(t *testing.T) {
 	data := url.Values{}
 	data.Set("code", "invalid-token")
 
-	req := createPostRequest(t, "/verify-delete", data)
 	client := createTestHttpClient()
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := makePostRequest(t, client, "http://localhost:1323/verify-delete", data)
 	assert.Equal(t, 400, res.StatusCode)
 }
 
@@ -933,12 +834,8 @@ func TestVerifyDeleteWithExpiredToken(t *testing.T) {
 	data := url.Values{}
 	data.Set("code", token)
 
-	req := createPostRequest(t, "/verify-delete", data)
 	client := createTestHttpClient()
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := makePostRequest(t, client, "http://localhost:1323/verify-delete", data)
 	assert.Equal(t, 400, res.StatusCode)
 }
 
@@ -956,12 +853,8 @@ func TestVerifyDeleteSuccess(t *testing.T) {
 	data := url.Values{}
 	data.Set("code", token)
 
-	req := createPostRequest(t, "/verify-delete", data)
 	client := createTestHttpClient()
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := makePostRequest(t, client, "http://localhost:1323/verify-delete", data)
 	assert.Equal(t, 200, res.StatusCode)
 
 	// Verify that the user was deleted
@@ -977,11 +870,7 @@ func TestIdTokenWithClaims(t *testing.T) {
 	defer cleanupTest(t, echoServer, controller)
 
 	// Create and verify a test user
-	createTestUser(t, controller)
-	err := controller.Store.VerifyUser(TestUsername)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	// Set some test claims for the user
 	user, err := controller.Store.FindUser(TestUsername)
