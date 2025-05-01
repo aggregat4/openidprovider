@@ -63,144 +63,7 @@ var serverConfig = domain.Configuration{
 	},
 }
 
-type MockEmailService struct {
-	SentEmails []struct {
-		ToEmail string
-		Subject string
-		Content string
-	}
-}
-
-var _ email.EmailSender = (*MockEmailService)(nil)
-
-func (m *MockEmailService) SendVerificationEmail(toEmail, verificationLink string) error {
-	m.SentEmails = append(m.SentEmails, struct {
-		ToEmail string
-		Subject string
-		Content string
-	}{
-		ToEmail: toEmail,
-		Subject: "Verify your email address",
-		Content: verificationLink,
-	})
-	return nil
-}
-
-func (m *MockEmailService) SendPasswordResetEmail(toEmail, resetLink string) error {
-	m.SentEmails = append(m.SentEmails, struct {
-		ToEmail string
-		Subject string
-		Content string
-	}{
-		ToEmail: toEmail,
-		Subject: "Reset your password",
-		Content: resetLink,
-	})
-	return nil
-}
-
-func (m *MockEmailService) SendDeleteAccountEmail(toEmail, deleteLink string) error {
-	m.SentEmails = append(m.SentEmails, struct {
-		ToEmail string
-		Subject string
-		Content string
-	}{
-		ToEmail: toEmail,
-		Subject: "Delete your account",
-		Content: deleteLink,
-	})
-	return nil
-}
-
-func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
-	fmt.Printf("DEBUG: Starting waitForServer\n")
-	loadKeys(t)
-	var store repository.Store
-	fmt.Printf("DEBUG: Initializing database\n")
-	err := store.InitAndVerifyDb(repository.CreateInMemoryDbUrl())
-	if err != nil {
-		fmt.Printf("DEBUG: Error initializing database: %v\n", err)
-		panic(err)
-	}
-	fmt.Printf("DEBUG: Database initialized successfully\n")
-	controller := server.Controller{
-		Store:        &store,
-		Config:       serverConfig,
-		EmailService: &MockEmailService{},
-	}
-	fmt.Printf("DEBUG: Creating server\n")
-	echoServer := server.InitServer(controller)
-	fmt.Printf("DEBUG: Starting server\n")
-	go func() {
-		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
-	}()
-	fmt.Printf("DEBUG: Waiting for server to start\n")
-	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort)+"/status")
-	fmt.Printf("DEBUG: Server started successfully\n")
-	return echoServer, controller
-}
-
-// Helper function to properly cleanup test resources
-func cleanupTest(t *testing.T, echoServer *echo.Echo, controller server.Controller) {
-	// First stop the cleanup job if it exists
-	if controller.CleanupJob != nil {
-		controller.CleanupJob.Stop()
-		// Give it a moment to finish any ongoing operations
-		time.Sleep(100 * time.Millisecond)
-	}
-	// Then close the server
-	if err := echoServer.Close(); err != nil {
-		t.Errorf("Error closing server: %v", err)
-	}
-	// Finally close the database
-	if err := controller.Store.Close(); err != nil {
-		t.Errorf("Error closing database: %v", err)
-	}
-}
-
-// Helper function to create an authorize URL with the given scopes
-func createAuthorizeUrl(t *testing.T, scopes string) *url.URL {
-	authorizeUrl, err := url.Parse(AuthorizeUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := authorizeUrl.Query()
-	query.Set("scope", scopes)
-	query.Set("client_id", TestClientid)
-	query.Set("response_type", "code")
-	query.Set("redirect_uri", TestRedirectUri)
-	query.Set("state", TestState)
-	authorizeUrl.RawQuery = query.Encode()
-	return authorizeUrl
-}
-
-// Helper function to make a GET request and handle errors
-func makeGetRequest(t *testing.T, client *http.Client, url string) *http.Response {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return res
-}
-
-// Helper function to make a POST request with form data and handle errors
-func makePostRequest(t *testing.T, client *http.Client, url string, data url.Values) *http.Response {
-	req, err := http.NewRequest("POST", url, strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return res
-}
-
+// Test functions start here
 func TestAuthorizeWithoutParameters(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
@@ -245,27 +108,6 @@ func TestAuthorizeWithValidScopes(t *testing.T) {
 	assert.Contains(t, locationHeader, "/login")
 }
 
-func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
-	authorizeUrl := createAuthorizeUrl(t, "openid profile")
-	res := makeGetRequest(t, client, authorizeUrl.String())
-	assert.Equal(t, 302, res.StatusCode)
-	locationHeader := res.Header.Get("Location")
-	assert.Contains(t, locationHeader, "/login")
-	assert.Contains(t, locationHeader, "client_id="+TestClientid)
-	assert.Contains(t, locationHeader, "redirect_uri="+url.QueryEscape(TestRedirectUri))
-	assert.Contains(t, locationHeader, "state="+TestState)
-
-	// Perform the login
-	data := url.Values{}
-	data.Set("clientid", TestClientid)
-	data.Set("username", TestUsername)
-	data.Set("password", password)
-	data.Set("redirecturi", TestRedirectUri)
-	data.Set("state", TestState)
-	data.Set("scope", "openid profile")
-	return makePostRequest(t, client, LoginUrl, data)
-}
-
 func TestLoginPageGet(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
@@ -276,11 +118,6 @@ func TestLoginPageGet(t *testing.T) {
 	body := readBody(res)
 	assert.Contains(t, strings.ToLower(body), "method=\"post\"")
 	assert.Contains(t, body, "action=\"/login\"")
-}
-
-func setRequiredFormPostHeaders(req *http.Request) {
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://"+req.Host)
 }
 
 func TestLoginWithUnknownUser(t *testing.T) {
@@ -405,126 +242,6 @@ func TestGenerateIdTokenWithWrongSecret(t *testing.T) {
 	assert.NotEmpty(t, token)
 	_, err = decodeIdTokenClaims(token, serverConfig.JwtConfig.PublicKey)
 	assert.Error(t, err)
-}
-
-func decodeIdTokenClaims(token string, publicKey *rsa.PublicKey) (jwt.MapClaims, error) {
-	claims := jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
-		return publicKey, nil
-	})
-	return claims, err
-}
-
-func createTestUser(t *testing.T, controller server.Controller) {
-	hashedPassword, err := crypto.HashPassword(TestPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.CreateUser(TestUsername, hashedPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-// construct a test HTTP client with cookie support so we can transport the CSRF token
-// and suppressed redirects so we can assert against the location header
-// createTestHttpClient returns an HTTP client with cookie support and disabled redirects.
-// This is useful for testing scenarios where you need to assert against the location header.
-func createTestHttpClient() *http.Client {
-	jar, _ := cookiejar.New(nil)
-	return &http.Client{
-		Jar: jar,
-		// we need to prevent the client from redirecting automatically since we may need to assert
-		// against the location header
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		//Transport: &http.Transport{DisableKeepAlives: true},
-	}
-}
-
-func waitForServerStart(t *testing.T, url string) {
-	maxRetries := 10
-	for i := 0; i < maxRetries; i++ {
-		resp, err := http.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			return
-		}
-		time.Sleep(time.Second)
-	}
-	t.Fatalf("Server did not start after %d retries", maxRetries)
-}
-
-func readBody(res *http.Response) string {
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		panic(err)
-	}
-	defer res.Body.Close()
-	return string(body)
-}
-
-func loadKeys(t *testing.T) {
-	if serverConfig.JwtConfig.PrivateKey == nil {
-		key, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			t.Fatal(err)
-		}
-		serverConfig.JwtConfig.PrivateKey = key
-		serverConfig.JwtConfig.PublicKey = &key.PublicKey
-	}
-}
-
-// Helper function to create a URL for a given endpoint
-func createEndpointUrl(endpoint string) (*url.URL, error) {
-	return url.Parse("http://localhost:1323" + endpoint)
-}
-
-// Helper function to create a test user
-func createTestUserWithPassword(t *testing.T, controller server.Controller, username, password string) {
-	hashedPassword, err := crypto.HashPassword(password)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.CreateUser(username, hashedPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Helper function to create a verified test user
-func createVerifiedTestUser(t *testing.T, controller server.Controller, username, password string) {
-	createTestUserWithPassword(t, controller, username, password)
-	err := controller.Store.VerifyUser(username)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Helper function to create a verification token
-func createVerificationToken(t *testing.T, controller server.Controller, token, email, tokenType string, created, expires int64) {
-	verificationToken := repository.VerificationToken{
-		Token:   token,
-		Email:   email,
-		Type:    tokenType,
-		Created: created,
-		Expires: expires,
-	}
-	err := controller.Store.CreateVerificationToken(verificationToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Helper function to create a password reset token
-func createPasswordResetToken(t *testing.T, controller server.Controller, token, email string, created, expires int64) {
-	createVerificationToken(t, controller, token, email, "password_reset", created, expires)
-}
-
-// Helper function to create a delete account token
-func createDeleteAccountToken(t *testing.T, controller server.Controller, token, email string, created, expires int64) {
-	createVerificationToken(t, controller, token, email, "delete_account", created, expires)
 }
 
 func TestForgotPasswordWithNonExistentUser(t *testing.T) {
@@ -994,4 +711,275 @@ func TestOpenIdConfiguration(t *testing.T) {
 	assert.Contains(t, config.ClaimsSupported, "sub")
 	assert.Contains(t, config.ClaimsSupported, "name")
 	assert.Contains(t, config.ClaimsSupported, "email")
+}
+
+// Helper functions start here
+type MockEmailService struct {
+	SentEmails []struct {
+		ToEmail string
+		Subject string
+		Content string
+	}
+}
+
+var _ email.EmailSender = (*MockEmailService)(nil)
+
+func (m *MockEmailService) SendVerificationEmail(toEmail, verificationLink string) error {
+	m.SentEmails = append(m.SentEmails, struct {
+		ToEmail string
+		Subject string
+		Content string
+	}{
+		ToEmail: toEmail,
+		Subject: "Verify your email address",
+		Content: verificationLink,
+	})
+	return nil
+}
+
+func (m *MockEmailService) SendPasswordResetEmail(toEmail, resetLink string) error {
+	m.SentEmails = append(m.SentEmails, struct {
+		ToEmail string
+		Subject string
+		Content string
+	}{
+		ToEmail: toEmail,
+		Subject: "Reset your password",
+		Content: resetLink,
+	})
+	return nil
+}
+
+func (m *MockEmailService) SendDeleteAccountEmail(toEmail, deleteLink string) error {
+	m.SentEmails = append(m.SentEmails, struct {
+		ToEmail string
+		Subject string
+		Content string
+	}{
+		ToEmail: toEmail,
+		Subject: "Delete your account",
+		Content: deleteLink,
+	})
+	return nil
+}
+
+func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
+	fmt.Printf("DEBUG: Starting waitForServer\n")
+	loadKeys(t)
+	var store repository.Store
+	fmt.Printf("DEBUG: Initializing database\n")
+	err := store.InitAndVerifyDb(repository.CreateInMemoryDbUrl())
+	if err != nil {
+		fmt.Printf("DEBUG: Error initializing database: %v\n", err)
+		panic(err)
+	}
+	fmt.Printf("DEBUG: Database initialized successfully\n")
+	controller := server.Controller{
+		Store:        &store,
+		Config:       serverConfig,
+		EmailService: &MockEmailService{},
+	}
+	fmt.Printf("DEBUG: Creating server\n")
+	echoServer := server.InitServer(controller)
+	fmt.Printf("DEBUG: Starting server\n")
+	go func() {
+		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
+	}()
+	fmt.Printf("DEBUG: Waiting for server to start\n")
+	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort)+"/status")
+	fmt.Printf("DEBUG: Server started successfully\n")
+	return echoServer, controller
+}
+
+func cleanupTest(t *testing.T, echoServer *echo.Echo, controller server.Controller) {
+	// First stop the cleanup job if it exists
+	if controller.CleanupJob != nil {
+		controller.CleanupJob.Stop()
+		// Give it a moment to finish any ongoing operations
+		time.Sleep(100 * time.Millisecond)
+	}
+	// Then close the server
+	if err := echoServer.Close(); err != nil {
+		t.Errorf("Error closing server: %v", err)
+	}
+	// Finally close the database
+	if err := controller.Store.Close(); err != nil {
+		t.Errorf("Error closing database: %v", err)
+	}
+}
+
+func createAuthorizeUrl(t *testing.T, scopes string) *url.URL {
+	authorizeUrl, err := url.Parse(AuthorizeUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := authorizeUrl.Query()
+	query.Set("scope", scopes)
+	query.Set("client_id", TestClientid)
+	query.Set("response_type", "code")
+	query.Set("redirect_uri", TestRedirectUri)
+	query.Set("state", TestState)
+	authorizeUrl.RawQuery = query.Encode()
+	return authorizeUrl
+}
+
+func makeGetRequest(t *testing.T, client *http.Client, url string) *http.Response {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func makePostRequest(t *testing.T, client *http.Client, url string, data url.Values) *http.Response {
+	req, err := http.NewRequest("POST", url, strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setRequiredFormPostHeaders(req)
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func setRequiredFormPostHeaders(req *http.Request) {
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://"+req.Host)
+}
+
+func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
+	authorizeUrl := createAuthorizeUrl(t, "openid profile")
+	res := makeGetRequest(t, client, authorizeUrl.String())
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, "/login")
+	assert.Contains(t, locationHeader, "client_id="+TestClientid)
+	assert.Contains(t, locationHeader, "redirect_uri="+url.QueryEscape(TestRedirectUri))
+	assert.Contains(t, locationHeader, "state="+TestState)
+
+	// Perform the login
+	data := url.Values{}
+	data.Set("clientid", TestClientid)
+	data.Set("username", TestUsername)
+	data.Set("password", password)
+	data.Set("redirecturi", TestRedirectUri)
+	data.Set("state", TestState)
+	data.Set("scope", "openid profile")
+	return makePostRequest(t, client, LoginUrl, data)
+}
+
+func createTestHttpClient() *http.Client {
+	jar, _ := cookiejar.New(nil)
+	return &http.Client{
+		Jar: jar,
+		// we need to prevent the client from redirecting automatically since we may need to assert
+		// against the location header
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		//Transport: &http.Transport{DisableKeepAlives: true},
+	}
+}
+
+func waitForServerStart(t *testing.T, url string) {
+	maxRetries := 10
+	for i := 0; i < maxRetries; i++ {
+		resp, err := http.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Fatalf("Server did not start after %d retries", maxRetries)
+}
+
+func readBody(res *http.Response) string {
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+	return string(body)
+}
+
+func loadKeys(t *testing.T) {
+	if serverConfig.JwtConfig.PrivateKey == nil {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		serverConfig.JwtConfig.PrivateKey = key
+		serverConfig.JwtConfig.PublicKey = &key.PublicKey
+	}
+}
+
+func createEndpointUrl(endpoint string) (*url.URL, error) {
+	return url.Parse("http://localhost:1323" + endpoint)
+}
+
+func createTestUser(t *testing.T, controller server.Controller) {
+	hashedPassword, err := crypto.HashPassword(TestPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.CreateUser(TestUsername, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createTestUserWithPassword(t *testing.T, controller server.Controller, username, password string) {
+	hashedPassword, err := crypto.HashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.CreateUser(username, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createVerifiedTestUser(t *testing.T, controller server.Controller, username, password string) {
+	createTestUserWithPassword(t, controller, username, password)
+	err := controller.Store.VerifyUser(username)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createVerificationToken(t *testing.T, controller server.Controller, token, email, tokenType string, created, expires int64) {
+	verificationToken := repository.VerificationToken{
+		Token:   token,
+		Email:   email,
+		Type:    tokenType,
+		Created: created,
+		Expires: expires,
+	}
+	err := controller.Store.CreateVerificationToken(verificationToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createPasswordResetToken(t *testing.T, controller server.Controller, token, email string, created, expires int64) {
+	createVerificationToken(t, controller, token, email, "password_reset", created, expires)
+}
+
+func createDeleteAccountToken(t *testing.T, controller server.Controller, token, email string, created, expires int64) {
+	createVerificationToken(t, controller, token, email, "delete_account", created, expires)
+}
+
+func decodeIdTokenClaims(token string, publicKey *rsa.PublicKey) (jwt.MapClaims, error) {
+	claims := jwt.MapClaims{}
+	_, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
+		return publicKey, nil
+	})
+	return claims, err
 }

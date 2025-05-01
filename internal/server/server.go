@@ -70,7 +70,7 @@ func InitServer(controller Controller) *echo.Echo {
 	// Serve static files
 	staticHandler := echo.WrapHandler(http.FileServer(http.FS(staticFiles)))
 	e.GET("/public/*", staticHandler)
-
+	// Initialize middleware
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte(uuid.New().String()))))
