@@ -22,11 +22,11 @@ import (
 
 	baselibmiddleware "github.com/aggregat4/go-baselib-services/v3/middleware"
 	"github.com/aggregat4/go-baselib/crypto"
+	"github.com/gorilla/sessions"
 
 	"github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
