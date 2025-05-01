@@ -158,6 +158,22 @@ func cleanupTest(t *testing.T, echoServer *echo.Echo, controller server.Controll
 	}
 }
 
+// Helper function to create an authorize URL with the given scopes
+func createAuthorizeUrl(t *testing.T, scopes string) *url.URL {
+	authorizeUrl, err := url.Parse(AuthorizeUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := authorizeUrl.Query()
+	query.Set("scope", scopes)
+	query.Set("client_id", TestClientid)
+	query.Set("response_type", "code")
+	query.Set("redirect_uri", TestRedirectUri)
+	query.Set("state", TestState)
+	authorizeUrl.RawQuery = query.Encode()
+	return authorizeUrl
+}
+
 func TestAuthorizeWithoutParameters(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
@@ -178,18 +194,7 @@ func TestAuthorize(t *testing.T) {
 		},
 	}
 
-	authorizeUrl, err := url.Parse(AuthorizeUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := authorizeUrl.Query()
-	query.Set("scope", "openid")
-	query.Set("client_id", TestClientid)
-	query.Set("response_type", "code")
-	query.Set("redirect_uri", TestRedirectUri)
-	query.Set("state", TestState)
-	authorizeUrl.RawQuery = query.Encode()
-
+	authorizeUrl := createAuthorizeUrl(t, "openid")
 	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -206,41 +211,56 @@ func TestAuthorize(t *testing.T) {
 	assert.Contains(t, locationHeader, "state="+TestState)
 }
 
-func TestLoginPageGet(t *testing.T) {
+func TestAuthorizeWithInvalidScope(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-	res, err := http.Get(LoginUrl)
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	authorizeUrl := createAuthorizeUrl(t, "openid invalid_scope")
+	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Equal(t, 200, res.StatusCode)
-	body := readBody(res)
-	assert.Contains(t, strings.ToLower(body), "method=\"post\"")
-	assert.Contains(t, body, "action=\"/login\"")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, "error=invalid_scope")
 }
 
-func setRequiredFormPostHeaders(req *http.Request) {
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://"+req.Host)
+func TestAuthorizeWithValidScopes(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	authorizeUrl := createAuthorizeUrl(t, "openid profile")
+	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, "/login")
 }
 
 func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
-	// Construct the authorize URL safely
-	authorizeUrl, err := url.Parse(AuthorizeUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Set query parameters
-	query := authorizeUrl.Query()
-	query.Set("scope", "openid profile")
-	query.Set("client_id", TestClientid)
-	query.Set("response_type", "code")
-	query.Set("redirect_uri", TestRedirectUri)
-	query.Set("state", TestState)
-	authorizeUrl.RawQuery = query.Encode()
-
-	t.Logf("DEBUG: Making GET request to authorize URL: %s", authorizeUrl.String())
+	authorizeUrl := createAuthorizeUrl(t, "openid profile")
 	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -274,6 +294,24 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 		t.Fatal(err)
 	}
 	return res
+}
+
+func TestLoginPageGet(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+	res, err := http.Get(LoginUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, strings.ToLower(body), "method=\"post\"")
+	assert.Contains(t, body, "action=\"/login\"")
+}
+
+func setRequiredFormPostHeaders(req *http.Request) {
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", "http://"+req.Host)
 }
 
 func TestLoginWithUnknownUser(t *testing.T) {
@@ -932,76 +970,6 @@ func TestVerifyDeleteSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Nil(t, user, "User should have been deleted")
-}
-
-func TestAuthorizeWithInvalidScope(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	authorizeUrl, err := url.Parse(AuthorizeUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := authorizeUrl.Query()
-	query.Set("scope", "openid invalid_scope")
-	query.Set("client_id", TestClientid)
-	query.Set("response_type", "code")
-	query.Set("redirect_uri", TestRedirectUri)
-	query.Set("state", TestState)
-	authorizeUrl.RawQuery = query.Encode()
-
-	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assert.Equal(t, 302, res.StatusCode)
-	locationHeader := res.Header.Get("Location")
-	assert.Contains(t, locationHeader, "error=invalid_scope")
-}
-
-func TestAuthorizeWithValidScopes(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	authorizeUrl, err := url.Parse(AuthorizeUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := authorizeUrl.Query()
-	query.Set("scope", "openid profile")
-	query.Set("client_id", TestClientid)
-	query.Set("response_type", "code")
-	query.Set("redirect_uri", TestRedirectUri)
-	query.Set("state", TestState)
-	authorizeUrl.RawQuery = query.Encode()
-
-	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assert.Equal(t, 302, res.StatusCode)
-	locationHeader := res.Header.Get("Location")
-	assert.Contains(t, locationHeader, "/login")
 }
 
 func TestIdTokenWithClaims(t *testing.T) {
