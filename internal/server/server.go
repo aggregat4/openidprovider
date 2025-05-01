@@ -87,7 +87,7 @@ func InitServer(controller Controller) *echo.Echo {
 
 	e.GET("/status", controller.Status)
 
-	// e.GET("/.well-known/openid-configuration", controller.openIdConfiguration)
+	e.GET("/.well-known/openid-configuration", controller.openIdConfiguration)
 	e.GET("/.well-known/jwks.json", controller.jwks)
 
 	e.GET("/authorize", controller.authorize)

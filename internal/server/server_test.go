@@ -178,7 +178,22 @@ func TestAuthorize(t *testing.T) {
 		},
 	}
 
-	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
+	authorizeUrl, err := url.Parse(AuthorizeUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := authorizeUrl.Query()
+	query.Set("scope", "openid")
+	query.Set("client_id", TestClientid)
+	query.Set("response_type", "code")
+	query.Set("redirect_uri", TestRedirectUri)
+	query.Set("state", TestState)
+	authorizeUrl.RawQuery = query.Encode()
+
+	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +353,15 @@ func TestLoginAndFetchToken(t *testing.T) {
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
 	data.Set("redirect_uri", TestRedirectUri)
-	req, _ := http.NewRequest("POST", "http://localhost:1323/token", strings.NewReader(data.Encode()))
+
+	tokenUrl, err := url.Parse("http://localhost:1323/token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest("POST", tokenUrl.String(), strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.SetBasicAuth(TestClientid, TestSecret)
 	setRequiredFormPostHeaders(req)
 	res, err = client.Do(req)
@@ -454,6 +477,71 @@ func loadKeys(t *testing.T) {
 	}
 }
 
+// Helper function to create a URL for a given endpoint
+func createEndpointUrl(endpoint string) (*url.URL, error) {
+	return url.Parse("http://localhost:1323" + endpoint)
+}
+
+// Helper function to create a POST request with form data
+func createPostRequest(t *testing.T, endpoint string, data url.Values) *http.Request {
+	endpointUrl, err := createEndpointUrl(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest("POST", endpointUrl.String(), strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setRequiredFormPostHeaders(req)
+	return req
+}
+
+// Helper function to create a test user
+func createTestUserWithPassword(t *testing.T, controller server.Controller, username, password string) {
+	hashedPassword, err := crypto.HashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = controller.Store.CreateUser(username, hashedPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Helper function to create a verified test user
+func createVerifiedTestUser(t *testing.T, controller server.Controller, username, password string) {
+	createTestUserWithPassword(t, controller, username, password)
+	err := controller.Store.VerifyUser(username)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Helper function to create a verification token
+func createVerificationToken(t *testing.T, controller server.Controller, token, email, tokenType string, created, expires int64) {
+	verificationToken := repository.VerificationToken{
+		Token:   token,
+		Email:   email,
+		Type:    tokenType,
+		Created: created,
+		Expires: expires,
+	}
+	err := controller.Store.CreateVerificationToken(verificationToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Helper function to create a password reset token
+func createPasswordResetToken(t *testing.T, controller server.Controller, token, email string, created, expires int64) {
+	createVerificationToken(t, controller, token, email, "password_reset", created, expires)
+}
+
+// Helper function to create a delete account token
+func createDeleteAccountToken(t *testing.T, controller server.Controller, token, email string, created, expires int64) {
+	createVerificationToken(t, controller, token, email, "delete_account", created, expires)
+}
+
 func TestForgotPasswordWithNonExistentUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
@@ -461,11 +549,8 @@ func TestForgotPasswordWithNonExistentUser(t *testing.T) {
 	client := createTestHttpClient()
 	data := url.Values{}
 	data.Set("email", "nonexistent@example.com")
-	req, err := http.NewRequest("POST", "http://localhost:1323/forgot-password", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/forgot-password", data)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -480,24 +565,13 @@ func TestForgotPasswordWithUnverifiedUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
 
-	// Create an unverified user
-	hashedPassword, err := crypto.HashPassword(TestPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.CreateUser(TestUsername, hashedPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createTestUserWithPassword(t, controller, TestUsername, TestPassword)
 
 	client := createTestHttpClient()
 	data := url.Values{}
 	data.Set("email", TestUsername)
-	req, err := http.NewRequest("POST", "http://localhost:1323/forgot-password", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/forgot-password", data)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -512,28 +586,13 @@ func TestForgotPasswordWithVerifiedUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
 
-	// Create and verify a user
-	hashedPassword, err := crypto.HashPassword(TestPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.CreateUser(TestUsername, hashedPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.VerifyUser(TestUsername)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	client := createTestHttpClient()
 	data := url.Values{}
 	data.Set("email", TestUsername)
-	req, err := http.NewRequest("POST", "http://localhost:1323/forgot-password", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/forgot-password", data)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -561,11 +620,8 @@ func TestResetPasswordWithInvalidToken(t *testing.T) {
 	data.Set("token", "invalid-token")
 	data.Set("password", "newpassword")
 	data.Set("confirmPassword", "newpassword")
-	req, err := http.NewRequest("POST", "http://localhost:1323/reset-password", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/reset-password", data)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -580,43 +636,20 @@ func TestResetPasswordWithExpiredToken(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
 
-	// Create and verify a user
-	hashedPassword, err := crypto.HashPassword(TestPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.CreateUser(TestUsername, hashedPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.VerifyUser(TestUsername)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	// Create an expired reset token
-	expiredToken := repository.VerificationToken{
-		Token:   "expired-token",
-		Email:   TestUsername,
-		Type:    "password_reset",
-		Created: time.Now().Add(-25 * time.Hour).Unix(),
-		Expires: time.Now().Add(-1 * time.Hour).Unix(),
-	}
-	err = controller.Store.CreateVerificationToken(expiredToken)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createPasswordResetToken(t, controller, "expired-token", TestUsername,
+		time.Now().Add(-25*time.Hour).Unix(),
+		time.Now().Add(-1*time.Hour).Unix())
 
 	client := createTestHttpClient()
 	data := url.Values{}
 	data.Set("token", "expired-token")
 	data.Set("password", "newpassword")
 	data.Set("confirmPassword", "newpassword")
-	req, err := http.NewRequest("POST", "http://localhost:1323/reset-password", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/reset-password", data)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -631,32 +664,12 @@ func TestResetPasswordSuccess(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
 
-	// Create and verify a user
-	hashedPassword, err := crypto.HashPassword(TestPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.CreateUser(TestUsername, hashedPassword)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = controller.Store.VerifyUser(TestUsername)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	// Create a valid reset token
-	validToken := repository.VerificationToken{
-		Token:   "valid-token",
-		Email:   TestUsername,
-		Type:    "password_reset",
-		Created: time.Now().Unix(),
-		Expires: time.Now().Add(24 * time.Hour).Unix(),
-	}
-	err = controller.Store.CreateVerificationToken(validToken)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createPasswordResetToken(t, controller, "valid-token", TestUsername,
+		time.Now().Unix(),
+		time.Now().Add(24*time.Hour).Unix())
 
 	// Reset password
 	newPassword := "newpassword123"
@@ -665,11 +678,8 @@ func TestResetPasswordSuccess(t *testing.T) {
 	data.Set("token", "valid-token")
 	data.Set("password", newPassword)
 	data.Set("confirmPassword", newPassword)
-	req, err := http.NewRequest("POST", "http://localhost:1323/reset-password", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/reset-password", data)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -800,11 +810,8 @@ func TestDeleteAccountWithNonExistentUser(t *testing.T) {
 
 	data := url.Values{}
 	data.Set("email", "nonexistent@example.com")
-	req, err := http.NewRequest("POST", "http://localhost:1323/delete-account", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/delete-account", data)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -816,15 +823,12 @@ func TestDeleteAccountWithNonExistentUser(t *testing.T) {
 func TestDeleteAccountWithUnverifiedUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-	createTestUser(t, controller)
+	createTestUserWithPassword(t, controller, TestUsername, TestPassword)
 
 	data := url.Values{}
 	data.Set("email", TestUsername)
-	req, err := http.NewRequest("POST", "http://localhost:1323/delete-account", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/delete-account", data)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -836,19 +840,12 @@ func TestDeleteAccountWithUnverifiedUser(t *testing.T) {
 func TestDeleteAccountWithVerifiedUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-	createTestUser(t, controller)
-	err := controller.Store.VerifyUser(TestUsername)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	data := url.Values{}
 	data.Set("email", TestUsername)
-	req, err := http.NewRequest("POST", "http://localhost:1323/delete-account", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/delete-account", data)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -874,11 +871,8 @@ func TestVerifyDeleteWithInvalidToken(t *testing.T) {
 
 	data := url.Values{}
 	data.Set("code", "invalid-token")
-	req, err := http.NewRequest("POST", "http://localhost:1323/verify-delete", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/verify-delete", data)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -890,33 +884,18 @@ func TestVerifyDeleteWithInvalidToken(t *testing.T) {
 func TestVerifyDeleteWithExpiredToken(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-	createTestUser(t, controller)
-	err := controller.Store.VerifyUser(TestUsername)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	// Create an expired token
 	token := uuid.New().String()
-	verificationToken := repository.VerificationToken{
-		Token:   token,
-		Email:   TestUsername,
-		Type:    "delete_account",
-		Created: time.Now().Add(-48 * time.Hour).Unix(),
-		Expires: time.Now().Add(-24 * time.Hour).Unix(),
-	}
-	err = controller.Store.CreateVerificationToken(verificationToken)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createDeleteAccountToken(t, controller, token, TestUsername,
+		time.Now().Add(-48*time.Hour).Unix(),
+		time.Now().Add(-24*time.Hour).Unix())
 
 	data := url.Values{}
 	data.Set("code", token)
-	req, err := http.NewRequest("POST", "http://localhost:1323/verify-delete", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/verify-delete", data)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -928,33 +907,18 @@ func TestVerifyDeleteWithExpiredToken(t *testing.T) {
 func TestVerifyDeleteSuccess(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
-	createTestUser(t, controller)
-	err := controller.Store.VerifyUser(TestUsername)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	// Create a valid token
 	token := uuid.New().String()
-	verificationToken := repository.VerificationToken{
-		Token:   token,
-		Email:   TestUsername,
-		Type:    "delete_account",
-		Created: time.Now().Unix(),
-		Expires: time.Now().Add(24 * time.Hour).Unix(),
-	}
-	err = controller.Store.CreateVerificationToken(verificationToken)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createDeleteAccountToken(t, controller, token, TestUsername,
+		time.Now().Unix(),
+		time.Now().Add(24*time.Hour).Unix())
 
 	data := url.Values{}
 	data.Set("code", token)
-	req, err := http.NewRequest("POST", "http://localhost:1323/verify-delete", strings.NewReader(data.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRequiredFormPostHeaders(req)
+
+	req := createPostRequest(t, "/verify-delete", data)
 	client := createTestHttpClient()
 	res, err := client.Do(req)
 	if err != nil {
@@ -980,7 +944,22 @@ func TestAuthorizeWithInvalidScope(t *testing.T) {
 		},
 	}
 
-	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid invalid_scope&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
+	authorizeUrl, err := url.Parse(AuthorizeUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := authorizeUrl.Query()
+	query.Set("scope", "openid invalid_scope")
+	query.Set("client_id", TestClientid)
+	query.Set("response_type", "code")
+	query.Set("redirect_uri", TestRedirectUri)
+	query.Set("state", TestState)
+	authorizeUrl.RawQuery = query.Encode()
+
+	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -1000,7 +979,22 @@ func TestAuthorizeWithValidScopes(t *testing.T) {
 		},
 	}
 
-	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid profile&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
+	authorizeUrl, err := url.Parse(AuthorizeUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := authorizeUrl.Query()
+	query.Set("scope", "openid profile")
+	query.Set("client_id", TestClientid)
+	query.Set("response_type", "code")
+	query.Set("redirect_uri", TestRedirectUri)
+	query.Set("state", TestState)
+	authorizeUrl.RawQuery = query.Encode()
+
+	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -1061,7 +1055,15 @@ func TestIdTokenWithClaims(t *testing.T) {
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
 	data.Set("redirect_uri", TestRedirectUri)
-	req, _ := http.NewRequest("POST", "http://localhost:1323/token", strings.NewReader(data.Encode()))
+
+	tokenUrl, err := url.Parse("http://localhost:1323/token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest("POST", tokenUrl.String(), strings.NewReader(data.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.SetBasicAuth(TestClientid, TestSecret)
 	setRequiredFormPostHeaders(req)
 	res, err = client.Do(req)
