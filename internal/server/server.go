@@ -85,13 +85,15 @@ func InitServer(controller Controller) *echo.Echo {
 	// CSRF protection middleware
 	e.Use(baselibmiddleware.CsrfMiddleware)
 
-	e.GET("/.well-known/openid-configuration", controller.openIdConfiguration)
+e.GET("/status", controller.Status)
+
+	// e.GET("/.well-known/openid-configuration", controller.openIdConfiguration)
 	e.GET("/.well-known/jwks.json", controller.jwks)
 
 	e.GET("/authorize", controller.authorize)
 	e.POST("/authorize", controller.authorize)
 
-	e.GET("/login", controller.showLoginPage)
+	e.GET("/login", controller.login)
 	e.POST("/login", controller.login)
 
 	e.POST("/token", controller.token)
@@ -114,6 +116,11 @@ func InitServer(controller Controller) *echo.Echo {
 	e.GET("/verify-delete/resend", controller.resendDeleteVerification)
 
 	return e
+}
+
+func (controller *Controller) Status(c echo.Context) error {
+	logger.Info("Status endpoint")
+	return c.String(http.StatusOK, "OK")
 }
 
 // This endpoint returns a JWKS document containing the public key
@@ -399,17 +406,25 @@ func (controller *Controller) login(c echo.Context) error {
 	logger.Info("login request received")
 	clientId := c.FormValue("clientid")
 	redirectUri := c.FormValue("redirecturi")
-	state := c.FormValue("state")
-	scopes := c.FormValue("scope")
-	username := c.FormValue("username")
-	password := c.FormValue("password")
-
 	// Check if this is an OAuth flow by checking if client_id and redirect_uri are present
 	isOAuthFlow := clientId != "" && redirectUri != ""
 
 	if isOAuthFlow {
+		state := c.FormValue("state")
+		scopes := c.FormValue("scope")
+		username := c.FormValue("username")
+		password := c.FormValue("password")
 		return controller.handleOAuthLogin(c, clientId, redirectUri, state, scopes, username, password)
 	}
+
+	// if it is NOT an oauth flow, check the method: if it is GET, show the login page
+	// if it is POST, handle the login
+	method := c.Request().Method
+	if method == "GET" {
+		return controller.showLoginPage(c)
+	}
+	username := c.FormValue("username")
+	password := c.FormValue("password")
 	return controller.handleRegularLogin(c, username, password)
 }
 

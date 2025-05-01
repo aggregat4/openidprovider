@@ -11,6 +11,7 @@ import (
 	"github.com/aggregat4/go-baselib/crypto"
 
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -112,22 +113,30 @@ func (m *MockEmailService) SendDeleteAccountEmail(toEmail, deleteLink string) er
 }
 
 func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
+	fmt.Printf("DEBUG: Starting waitForServer\n")
 	loadKeys(t)
 	var store repository.Store
+	fmt.Printf("DEBUG: Initializing database\n")
 	err := store.InitAndVerifyDb(repository.CreateInMemoryDbUrl())
 	if err != nil {
+		fmt.Printf("DEBUG: Error initializing database: %v\n", err)
 		panic(err)
 	}
+	fmt.Printf("DEBUG: Database initialized successfully\n")
 	controller := server.Controller{
 		Store:        &store,
 		Config:       serverConfig,
 		EmailService: &MockEmailService{},
 	}
+	fmt.Printf("DEBUG: Creating server\n")
 	echoServer := server.InitServer(controller)
+	fmt.Printf("DEBUG: Starting server\n")
 	go func() {
 		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
 	}()
-	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort))
+	fmt.Printf("DEBUG: Waiting for server to start\n")
+	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort)+"/status")
+	fmt.Printf("DEBUG: Server started successfully\n")
 	return echoServer, controller
 }
 
@@ -197,12 +206,30 @@ func TestLoginPageGet(t *testing.T) {
 
 func setRequiredFormPostHeaders(req *http.Request) {
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Origin", "http://localhost:1323")
+	req.Header.Add("Origin", "http://"+req.Host)
 }
 
 func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string) *http.Response {
-	// We need to authorize first so we get redirected to the login page
-	req, _ := http.NewRequest("GET", AuthorizeUrl+"?scope=openid profile&client_id="+TestClientid+"&response_type=code&redirect_uri="+TestRedirectUri+"&state="+TestState, nil)
+	// Construct the authorize URL safely
+	authorizeUrl, err := url.Parse(AuthorizeUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set query parameters
+	query := authorizeUrl.Query()
+	query.Set("scope", "openid profile")
+	query.Set("client_id", TestClientid)
+	query.Set("response_type", "code")
+	query.Set("redirect_uri", TestRedirectUri)
+	query.Set("state", TestState)
+	authorizeUrl.RawQuery = query.Encode()
+
+	t.Logf("DEBUG: Making GET request to authorize URL: %s", authorizeUrl.String())
+	req, err := http.NewRequest("GET", authorizeUrl.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)

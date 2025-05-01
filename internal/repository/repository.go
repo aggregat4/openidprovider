@@ -194,7 +194,7 @@ func (store *Store) InitAndVerifyDb(dbUrl string) error {
 	var err error
 	store.db, err = sql.Open("sqlite3", dbUrl)
 	if err != nil {
-		return err
+		return fmt.Errorf("error opening database: %w", err)
 	}
 	return migrations.MigrateSchema(store.db, mymigrations)
 }
