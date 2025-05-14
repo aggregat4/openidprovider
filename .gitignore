@@ -1,9 +1,10 @@
 bin/
 *.sqlite*
+*sqlite-shm
+*sqlite-wal
 tmp/
 .vscode/
 .env
-*sqlite-shm
-*sqlite-wal
 coverage.*
 .idea/
+*.pem
