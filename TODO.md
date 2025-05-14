@@ -1,5 +1,9 @@
 # TODO
 
+## Fixes
+
+  * verify why the demo setup login does not work, it says invalid credentials even if I use the same user and password used for created the demo db
+
 ## Self-Registration ✅
 
 ### Allow **registration**
