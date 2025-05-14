@@ -1,0 +1,7 @@
+{
+    "port": 8080,
+    "openid_provider": "http://localhost:1301",
+    "client_id": "demo-client",
+    "client_secret": "demo-secret",
+    "redirect_uri": "http://localhost:8080/auth/callback"
+} 

@@ -3,20 +3,25 @@ package main
 import (
 	"aggregat4/openidprovider/internal/repository"
 	"flag"
-	"github.com/aggregat4/go-baselib/crypto"
 	"log"
+
+	"github.com/aggregat4/go-baselib/crypto"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
-	const dbName = "openidprovider"
-
+	var dbName string
+	flag.StringVar(&dbName, "db", "", "Database name (required)")
 	var initdbPassword string
 	flag.StringVar(&initdbPassword, "password", "", "Initializes the database with a user with this password")
 	var initdbUsername string
 	flag.StringVar(&initdbUsername, "username", "", "Initializes the database with a user with this username")
 	flag.Parse()
+
+	if dbName == "" {
+		log.Fatalf("Database name is required. Use -db flag to specify it")
+	}
 
 	if initdbPassword != "" && initdbUsername != "" {
 		var store repository.Store

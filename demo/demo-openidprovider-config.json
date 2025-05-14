@@ -1,0 +1,18 @@
+{
+	"databasefilename": "demodb",
+	"serverport": 1301,
+	"baseurl": "http://localhost:1301",
+	"privatekeypemfilename": "demo-private.pem",
+	"publickeypemfilename": "demo-public.pem",
+	"registeredclients": [
+		{
+			"id": "demo-client",
+			"basicauthsecret": "demo-secret",
+			"redirecturis" : ["http://localhost:8080/auth/callback"]
+		}
+	],
+	"jwt": {
+		"issuer": "http://localhost:1301",
+		"idtokenvalidityminutes": 5
+	}
+}
