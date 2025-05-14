@@ -5,9 +5,11 @@ import (
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
 	"flag"
+	"log"
+	"time"
+
 	"github.com/aggregat4/go-baselib/crypto"
 	"github.com/aggregat4/go-baselib/lang"
-	"log"
 
 	"github.com/kirsle/configdir"
 	"github.com/knadh/koanf/parsers/json"
@@ -123,6 +125,21 @@ func readConfig(configFileLocation string) domain.Configuration {
 		}
 	}
 	idTokenValidityMinutes := k.MustInt("jwt.idtokenvalidityminutes")
+
+	// Set default cleanup configuration
+	cleanupConfig := domain.CleanupConfiguration{
+		UnverifiedUserMaxAge: 24 * time.Hour, // Default: 24 hours
+		CleanupInterval:      1 * time.Hour,  // Default: 1 hour
+	}
+
+	// Override with config file values if present
+	if k.Exists("cleanup.unverifiedusermaxage") {
+		cleanupConfig.UnverifiedUserMaxAge = time.Duration(k.MustInt("cleanup.unverifiedusermaxage")) * time.Hour
+	}
+	if k.Exists("cleanup.cleanupinterval") {
+		cleanupConfig.CleanupInterval = time.Duration(k.MustInt("cleanup.cleanupinterval")) * time.Hour
+	}
+
 	return domain.Configuration{
 		DatabaseFilename:          databaseFilename,
 		ServerReadTimeoutSeconds:  serverReadTimeoutSeconds,
@@ -136,5 +153,6 @@ func readConfig(configFileLocation string) domain.Configuration {
 			PrivateKey:             privateKey,
 			PublicKey:              publicKey,
 		},
+		CleanupConfig: cleanupConfig,
 	}
 }
