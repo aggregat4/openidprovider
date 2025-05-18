@@ -83,7 +83,9 @@ func InitServer(controller Controller) *echo.Echo {
 		Validator: controller.basicAuthValidator,
 	}))
 	// CSRF protection middleware
-	e.Use(baselibmiddleware.CsrfMiddleware)
+	e.Use(baselibmiddleware.CreateCsrfMiddlewareWithSkipper(func(c echo.Context) bool {
+		return c.Path() == "/token"
+	}))
 
 	e.GET("/status", controller.Status)
 
