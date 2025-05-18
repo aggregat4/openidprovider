@@ -38,6 +38,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error initializing database: %s", err)
 		}
+		err = store.VerifyUser(initdbUsername)
+		if err != nil {
+			log.Fatalf("Error verifying user: %s", err)
+		}
 	} else {
 		log.Fatalf("Require a username and password to initialize a database with a valid user")
 	}
