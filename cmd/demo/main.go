@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -26,7 +28,8 @@ const (
         <h1>Demo App</h1>
         <nav>
             <a href="/">Home</a> |
-            <a href="/protected">Dashboard</a>
+            <a href="/protected">Dashboard</a> |
+			<a href="/emails">Mock Emails</a>
         </nav>
     </header>
 
@@ -44,20 +47,21 @@ const (
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Demo App - Dashboard</title>
+    <title>Demo App - Protected Page</title>
 </head>
 <body>
     <header>
         <h1>Demo App</h1>
         <nav>
             <a href="/">Home</a> |
-            <a href="/protected">Dashboard</a> |
+            <a href="/protected">Protected Page</a> |
+			<a href="/emails">Mock Emails</a> |
             <a href="/logout">Log Out</a>
         </nav>
     </header>
 
     <main>
-        <h2>Dashboard</h2>
+        <h2>Protected Page</h2>
         
         <section>
             <h3>User Information</h3>
@@ -73,6 +77,41 @@ const (
 </html>`
 
 	protectedPath = "/protected"
+
+	emailDisplayHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo App - Mock Emails</title>
+</head>
+<body>
+    <header>
+        <h1>Demo App</h1>
+        <nav>
+            <a href="/">Home</a> |
+            <a href="/protected">Protected Page</a> |
+			<a href="/emails">Mock Emails</a>
+        </nav>
+    </header>
+
+    <main>
+        <h2>Mock Emails</h2>
+        {{range .Emails}}
+        <div class="email-card">
+            <div class="email-header">
+                <div class="email-subject">{{.Subject}}</div>
+                <div class="email-meta">
+                    To: {{.To}}<br>
+                    Time: {{.Time}}
+                </div>
+            </div>
+            <div class="email-body">{{.Body}}</div>
+        </div>
+        {{end}}
+    </main>
+</body>
+</html>`
 )
 
 type Config struct {
@@ -101,9 +140,22 @@ type PageData struct {
 	ClaimsJSON string
 }
 
+type Email struct {
+	To      string    `json:"to"`
+	Subject string    `json:"subject"`
+	Body    string    `json:"body"`
+	Time    time.Time `json:"time"`
+}
+
+type EmailPageData struct {
+	Emails []Email
+}
+
 var (
 	publicTemplate    = template.Must(template.New("public").Parse(publicHTML))
 	protectedTemplate = template.Must(template.New("protected").Parse(protectedHTML))
+	emailTemplate     = template.Must(template.New("emails").Parse(emailDisplayHTML))
+	mockEmails        = make([]Email, 0)
 )
 
 func main() {
@@ -135,6 +187,7 @@ func main() {
 		handleCallback(w, r, config, providerConfig)
 	})
 	http.HandleFunc("/logout", handleLogout)
+	http.HandleFunc("/emails", handleEmails)
 
 	log.Printf("Starting demo server on port %d", config.Port)
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -373,4 +426,40 @@ func base64Decode(s string) ([]byte, error) {
 	s = strings.ReplaceAll(s, "_", "/")
 
 	return base64.StdEncoding.DecodeString(s)
+}
+
+func handleEmails(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Handling emails request: %s %s", r.Method, r.URL.Path)
+
+	switch r.Method {
+	case http.MethodGet:
+		// Sort emails by time in reverse chronological order
+		sortedEmails := make([]Email, len(mockEmails))
+		copy(sortedEmails, mockEmails)
+		sort.Slice(sortedEmails, func(i, j int) bool {
+			return sortedEmails[i].Time.After(sortedEmails[j].Time)
+		})
+
+		data := EmailPageData{
+			Emails: sortedEmails,
+		}
+
+		emailTemplate.Execute(w, data)
+
+	case http.MethodPost:
+		var email Email
+		if err := json.NewDecoder(r.Body).Decode(&email); err != nil {
+			log.Printf("Error decoding email: %v", err)
+			http.Error(w, "Invalid email data", http.StatusBadRequest)
+			return
+		}
+
+		email.Time = time.Now()
+		mockEmails = append(mockEmails, email)
+
+		w.WriteHeader(http.StatusOK)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
