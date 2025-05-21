@@ -4,6 +4,7 @@ import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
+	"aggregat4/openidprovider/pkg/email"
 	"flag"
 	"log"
 	"time"
@@ -34,9 +35,19 @@ func main() {
 	}
 	defer store.Close()
 
+	// Initialize email sender
+	var emailSender email.EmailSender
+	if config.MockEmailDemoServerURL != "" {
+		log.Printf("Using mock email sender with demo server URL: %s", config.MockEmailDemoServerURL)
+		emailSender = email.NewMockEmailSender(config.MockEmailDemoServerURL)
+	} else {
+		log.Fatal("No email sender configured. Please set either mock_email_demo_server_url or configure a real email sender.")
+	}
+
 	server.RunServer(server.Controller{
-		Store:  &store,
-		Config: config,
+		Store:        &store,
+		Config:       config,
+		EmailService: emailSender,
 	})
 }
 
@@ -140,6 +151,9 @@ func readConfig(configFileLocation string) domain.Configuration {
 		cleanupConfig.CleanupInterval = time.Duration(k.MustInt("cleanup.cleanupinterval")) * time.Hour
 	}
 
+	// Get mock email demo server URL if configured
+	mockEmailDemoServerURL := k.String("mock_email_demo_server_url")
+
 	return domain.Configuration{
 		DatabaseFilename:          databaseFilename,
 		ServerReadTimeoutSeconds:  serverReadTimeoutSeconds,
@@ -153,6 +167,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 			PrivateKey:             privateKey,
 			PublicKey:              publicKey,
 		},
-		CleanupConfig: cleanupConfig,
+		CleanupConfig:          cleanupConfig,
+		MockEmailDemoServerURL: mockEmailDemoServerURL,
 	}
 }

@@ -11,8 +11,14 @@
 			"redirecturis" : ["http://localhost:8080/auth/callback"]
 		}
 	],
+    "cleanup": {
+        "unverifiedusermaxage": 24,
+        "cleanupinterval": 1
+    },
 	"jwt": {
 		"issuer": "http://localhost:1301",
 		"idtokenvalidityminutes": 5
-	}
+	},
+	"mock_email_demo_server_url": "http://localhost:8080"
+
 }

@@ -30,6 +30,7 @@ type Configuration struct {
 	JwtConfig                 JwtConfiguration
 	SendgridConfig            SendgridConfiguration
 	CleanupConfig             CleanupConfiguration
+	MockEmailDemoServerURL    string
 }
 
 type SendgridConfiguration struct {

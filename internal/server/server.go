@@ -624,6 +624,13 @@ func (controller *Controller) register(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
 
+	// TODO: we need email sending debouncing and abuse prevention
+	// look at the logic int he main branch where we already have that and port it here
+	// we have a cleanup job that will delete unverified users after a while
+	// if a user already exists here and is verified, we should pretend to register and do nothing
+	// if a user already exists and is not verified, we should maybe send another verification email as per the debouncing logic
+	// we should probably also have some upper bound to the number of verification emails that can be sent to an email address and afterwards remove that user or we block it? so it would have to remain in the database and be marked blocked? Is this forever or also just with a certain deadline?
+
 	if existingUser != nil {
 		isVerified, err := controller.Store.IsUserVerified(email)
 		if err != nil {
