@@ -624,7 +624,7 @@ func (controller *Controller) register(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "Internal error")
 	}
 
-	// TODO: we need email sending debouncing and abuse prevention
+	// TODO: (left off here) we need email sending debouncing and abuse prevention
 	// look at the logic int he main branch where we already have that and port it here
 	// we have a cleanup job that will delete unverified users after a while
 	// if a user already exists here and is verified, we should pretend to register and do nothing
