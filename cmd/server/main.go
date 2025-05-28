@@ -41,7 +41,8 @@ func main() {
 		log.Printf("Using mock email sender with demo server URL: %s", config.MockEmailDemoServerURL)
 		emailSender = email.NewMockEmailSender(config.MockEmailDemoServerURL)
 	} else {
-		log.Fatal("No email sender configured. Please set either mock_email_demo_server_url or configure a real email sender.")
+		log.Printf("Using Sendgrid email sender")
+		emailSender = email.NewEmailService(config.SendgridConfig, &store)
 	}
 
 	server.RunServer(server.Controller{

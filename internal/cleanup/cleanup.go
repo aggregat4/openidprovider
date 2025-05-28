@@ -77,5 +77,10 @@ func (j *CleanupJob) cleanup() error {
 		return err
 	}
 
+	// Clean up expired email tracking records
+	if err := j.store.CleanupExpiredEmailTracking(); err != nil {
+		return err
+	}
+
 	return nil
 }

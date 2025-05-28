@@ -37,6 +37,12 @@ type SendgridConfiguration struct {
 	APIKey    string
 	FromEmail string
 	FromName  string
+	RateLimit struct {
+		MaxEmailsPerDay     int           `json:"maxEmailsPerDay"`
+		MaxEmailsPerAddress int           `json:"maxEmailsPerAddress"`
+		BackoffPeriod       time.Duration `json:"backoffPeriod"`
+		BlockPeriod         time.Duration `json:"blockPeriod"`
+	} `json:"rateLimit"`
 }
 
 type CleanupConfiguration struct {

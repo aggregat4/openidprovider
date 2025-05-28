@@ -130,6 +130,27 @@ var mymigrations = []migrations.Migration{
 			('email', 'email_verified', 'Email verification status', unixepoch());
 		`,
 	},
+	{
+		SequenceId: 5,
+		Sql: `
+		-- Create email tracking table for rate limiting and abuse prevention
+		CREATE TABLE IF NOT EXISTS email_tracking (
+			email TEXT NOT NULL,
+			type TEXT NOT NULL,
+			first_attempt INTEGER NOT NULL,
+			last_attempt INTEGER NOT NULL,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			blocked INTEGER NOT NULL DEFAULT 0,
+			blocked_at INTEGER,
+			PRIMARY KEY (email, type)
+		);
+
+		-- Create index for cleanup of expired tracking records
+		CREATE INDEX idx_email_tracking_first_attempt ON email_tracking(first_attempt);
+		-- Create index for cleanup of expired blocks
+		CREATE INDEX idx_email_tracking_blocked_at ON email_tracking(blocked_at);
+		`,
+	},
 }
 
 type Store struct {
@@ -180,6 +201,16 @@ type UserClaim struct {
 	ClaimName string
 	Value     string
 	CreatedAt int64
+}
+
+type EmailTracking struct {
+	Email        string
+	Type         string
+	FirstAttempt int64
+	LastAttempt  int64
+	Attempts     int
+	Blocked      bool
+	BlockedAt    int64
 }
 
 func CreateFileDbUrl(dbName string) string {
@@ -612,4 +643,97 @@ func (store *Store) ScopeExists(scopeName string) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (store *Store) TrackEmailAttempt(email, emailType string) error {
+	now := time.Now().Unix()
+
+	_, err := store.db.Exec(`
+		INSERT INTO email_tracking (email, type, first_attempt, last_attempt, attempts)
+		VALUES (?, ?, ?, ?, 1)
+		ON CONFLICT(email, type) DO UPDATE SET
+			last_attempt = ?,
+			attempts = attempts + 1
+	`, email, emailType, now, now, now)
+	return err
+}
+
+func (store *Store) GetEmailTracking(email, emailType string) (*EmailTracking, error) {
+	rows, err := store.db.Query(`
+		SELECT email, type, first_attempt, last_attempt, attempts, blocked, blocked_at
+		FROM email_tracking
+		WHERE email = ? AND type = ?
+	`, email, emailType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var et EmailTracking
+		var blocked int
+		err = rows.Scan(&et.Email, &et.Type, &et.FirstAttempt, &et.LastAttempt, &et.Attempts, &blocked, &et.BlockedAt)
+		if err != nil {
+			return nil, err
+		}
+		et.Blocked = blocked == 1
+		return &et, nil
+	}
+	return nil, nil
+}
+
+func (store *Store) BlockEmailAddress(email, emailType string, blockUntil time.Time) error {
+	_, err := store.db.Exec(`
+		UPDATE email_tracking
+		SET blocked = 1, blocked_at = ?
+		WHERE email = ? AND type = ?
+	`, time.Now().Unix(), email, emailType)
+	return err
+}
+
+func (store *Store) GetEmailCounts(since time.Time) (map[string]int, error) {
+	counts := make(map[string]int)
+	sinceUnix := since.Unix()
+
+	// Get count per email address
+	rows, err := store.db.Query(`
+		SELECT email, attempts
+		FROM email_tracking
+		WHERE first_attempt >= ?
+	`, sinceUnix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var email string
+		var count int
+		err = rows.Scan(&email, &count)
+		if err != nil {
+			return nil, err
+		}
+		counts[email] = count
+	}
+
+	return counts, nil
+}
+
+func (store *Store) CleanupExpiredEmailTracking() error {
+	// First unblock addresses where the block period has expired
+	_, err := store.db.Exec(`
+		UPDATE email_tracking
+		SET blocked = 0, blocked_at = NULL
+		WHERE blocked = 1 AND blocked_at < ?
+	`, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+
+	// Then delete tracking records that are older than 24 hours AND are not blocked
+	_, err = store.db.Exec(`
+		DELETE FROM email_tracking
+		WHERE first_attempt < ? AND blocked = 0
+	`, time.Now().Add(-24*time.Hour).Unix())
+	return err
 }

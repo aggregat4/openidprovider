@@ -30,6 +30,12 @@
 	"sendgridConfig": {
 		"apiKey": "your-sendgrid-api-key",
 		"fromEmail": "noreply@yourdomain.com",
-		"fromName": "Your Application Name"
+		"fromName": "Your Application Name",
+		"rateLimit": {
+			"maxEmailsPerDay": 1000,
+			"maxEmailsPerAddress": 3,
+			"backoffPeriod": "5m",
+			"blockPeriod": "1h"
+		}
 	}
 }
