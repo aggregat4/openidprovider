@@ -36,8 +36,8 @@ const (
     <main>
         <h2>Welcome to the Demo App</h2>
         <p>This is a simple demo application that demonstrates OpenID Connect authentication.</p>
-        <p>Click the button below to log in using the OpenID Provider.</p>
-        <a href="/auth/login">Log In</a>
+        <p>The "Log In" link will navigate to a page that requires authentication and will trigger the OIDC authorization code flow if you are not already logged in.</p>
+        <a href="/protected">Log In</a>
     </main>
 </body>
 </html>`
