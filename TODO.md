@@ -35,9 +35,9 @@
   * ✅ cleanup of all user-related data (verification tokens, authorization codes)
 
 ### Email sending debounce logic and abuse prevention ❌
-	* ❌ We need general debounce logic for all email sending:
-	  * ❌ we need to back off sending the next mail to the same address when we already sent one in the last X minutes, this should progressively get longer and only be done at max 3 times per hour
-	  * ❌ we need a global limit to the number of emails we send in total (per day) as it would otherwise exhaust the subscription we have
+	* ✅ We need general debounce logic for all email sending:
+	  * ✅ we need to back off sending the next mail to the same address when we already sent one in the last X minutes, this should progressively get longer and only be done at max 3 times per hour
+	  * ✅ we need a global limit to the number of emails we send in total (per day) as it would otherwise exhaust the subscription we have
 	* ❌ if a user already exists here and is verified, we should pretend to register and do nothing (or should we send confirmation email to the user?)
 	* ❌ if a user already exists and is not verified, we should send another verification email as per the debouncing logic above
 	* ❌ we should also have some upper bound to the number of verification emails that can be sent to an email address and then block that address from trying more verifications for a certain period of time
@@ -141,3 +141,9 @@ Create a simple demo system to test the OpenID Provider integration:
   * ✅ Minimal dependencies
   * ✅ Easy to deploy and run locally
   * ✅ Clear separation from main OpenID Provider codebase
+
+
+## Misc Improvements
+
+  * Implement a `.well-known/change-password` endpoint as per <https://w3c.github.io/webappsec-change-password-url/> that can be used by password managers tot automatically redirect and trigger a password change flow.
+  
