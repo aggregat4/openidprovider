@@ -67,20 +67,17 @@ func (j *CleanupJob) run() {
 }
 
 func (j *CleanupJob) cleanup() error {
-	// Delete expired verification tokens
 	if err := j.store.DeleteExpiredVerificationTokens(); err != nil {
 		return err
 	}
-
-	// Delete unverified users that are older than the max age
 	if err := j.store.DeleteUnverifiedUsers(j.config.UnverifiedUserMaxAge); err != nil {
 		return err
 	}
-
-	// Clean up expired email tracking records
 	if err := j.store.CleanupExpiredEmailTracking(); err != nil {
 		return err
 	}
-
+	if err := j.store.DeleteExpiredAuthorizationCodes(); err != nil {
+		return err
+	}
 	return nil
 }

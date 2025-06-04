@@ -737,3 +737,9 @@ func (store *Store) CleanupExpiredEmailTracking() error {
 	`, time.Now().Add(-24*time.Hour).Unix())
 	return err
 }
+
+func (store *Store) DeleteExpiredAuthorizationCodes() error {
+	// Delete codes that are older than 10 minutes as per https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2
+	_, err := store.db.Exec("DELETE FROM codes WHERE created < ?", time.Now().Add(-10*time.Minute).Unix())
+	return err
+}
