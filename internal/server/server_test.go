@@ -713,6 +713,312 @@ func TestOpenIdConfiguration(t *testing.T) {
 	assert.Contains(t, config.ClaimsSupported, "email")
 }
 
+func TestRegistrationWithNewUser(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("email", "newuser@example.com")
+	data.Set("password", "newpassword")
+	data.Set("confirmPassword", "newpassword")
+
+	res := makePostRequest(t, client, "http://localhost:1323/register", data)
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "Please check your email to verify your account")
+
+	// Verify that a verification email was sent
+	mockEmailService := controller.EmailService.(*MockEmailService)
+	found := false
+	for _, email := range mockEmailService.SentEmails {
+		if email.Subject == "Verify your email address" && email.ToEmail == "newuser@example.com" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "Verification email should have been sent")
+
+	// Verify that a verification token was created
+	tokens, err := controller.Store.FindVerificationTokenByEmail("newuser@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 1, len(tokens))
+	assert.Equal(t, "registration", tokens[0].Type)
+}
+
+func TestRegistrationWithExistingVerifiedUser(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	// Create a verified user first
+	createVerifiedTestUser(t, controller, "existing@example.com", "password")
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("email", "existing@example.com")
+	data.Set("password", "newpassword")
+	data.Set("confirmPassword", "newpassword")
+
+	res := makePostRequest(t, client, "http://localhost:1323/register", data)
+	assert.Equal(t, 302, res.StatusCode)
+	locationHeader := res.Header.Get("Location")
+	assert.Contains(t, locationHeader, "/login")
+
+	// Verify that no verification email was sent
+	mockEmailService := controller.EmailService.(*MockEmailService)
+	for _, email := range mockEmailService.SentEmails {
+		if email.Subject == "Verify your email address" && email.ToEmail == "existing@example.com" {
+			t.Fatal("Verification email should not have been sent for existing verified user")
+		}
+	}
+}
+
+// TODO: continue here, test fails apparently because verification_tokens table can not be found?!
+func TestRegistrationWithExistingUnverifiedUser(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	// Create an unverified user first
+	createTestUserWithPassword(t, controller, "unverified@example.com", "password")
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("email", "unverified@example.com")
+	data.Set("password", "newpassword")
+	data.Set("confirmPassword", "newpassword")
+
+	res := makePostRequest(t, client, "http://localhost:1323/register", data)
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "Please check your email to verify your account")
+
+	// Verify that a verification email was sent
+	mockEmailService := controller.EmailService.(*MockEmailService)
+	found := false
+	for _, email := range mockEmailService.SentEmails {
+		if email.Subject == "Verify your email address" && email.ToEmail == "unverified@example.com" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "Verification email should have been sent for unverified user")
+}
+
+func TestRegistrationEmailDebouncing(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	client := createTestHttpClient()
+	email := "debounce@example.com"
+
+	// First registration attempt
+	data := url.Values{}
+	data.Set("email", email)
+	data.Set("password", "password")
+	data.Set("confirmPassword", "password")
+
+	res := makePostRequest(t, client, "http://localhost:1323/register", data)
+	assert.Equal(t, 200, res.StatusCode)
+
+	// Second registration attempt immediately after
+	res = makePostRequest(t, client, "http://localhost:1323/register", data)
+	assert.Equal(t, 200, res.StatusCode)
+
+	// Verify that only one verification email was sent
+	mockEmailService := controller.EmailService.(*MockEmailService)
+	count := 0
+	for _, email := range mockEmailService.SentEmails {
+		if email.Subject == "Verify your email address" && email.ToEmail == "debounce@example.com" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "Only one verification email should have been sent")
+}
+
+func TestRegistrationEmailRateLimiting(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	client := createTestHttpClient()
+	email := "ratelimit@example.com"
+
+	// Simulate multiple registration attempts
+	for i := 0; i < 4; i++ {
+		data := url.Values{}
+		data.Set("email", email)
+		data.Set("password", "password")
+		data.Set("confirmPassword", "password")
+
+		res := makePostRequest(t, client, "http://localhost:1323/register", data)
+		assert.Equal(t, 200, res.StatusCode)
+	}
+
+	// Verify that only 3 verification emails were sent (max allowed)
+	mockEmailService := controller.EmailService.(*MockEmailService)
+	count := 0
+	for _, email := range mockEmailService.SentEmails {
+		if email.Subject == "Verify your email address" && email.ToEmail == "ratelimit@example.com" {
+			count++
+		}
+	}
+	assert.Equal(t, 3, count, "Only 3 verification emails should have been sent")
+
+	// Verify that the email is now blocked
+	tracking, err := controller.Store.GetEmailTracking("ratelimit@example.com", "verification")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.True(t, tracking.Blocked, "Email should be blocked after exceeding rate limit")
+}
+
+func TestRegistrationWithInvalidData(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	client := createTestHttpClient()
+
+	// Test cases
+	testCases := []struct {
+		name            string
+		email           string
+		password        string
+		confirmPassword string
+		expectedError   string
+	}{
+		{
+			name:            "Empty email",
+			email:           "",
+			password:        "password",
+			confirmPassword: "password",
+			expectedError:   "Email is required",
+		},
+		{
+			name:            "Invalid email format",
+			email:           "invalid-email",
+			password:        "password",
+			confirmPassword: "password",
+			expectedError:   "Invalid email format",
+		},
+		{
+			name:            "Empty password",
+			email:           "test@example.com",
+			password:        "",
+			confirmPassword: "",
+			expectedError:   "Password is required",
+		},
+		{
+			name:            "Password too short",
+			email:           "test@example.com",
+			password:        "short",
+			confirmPassword: "short",
+			expectedError:   "Password must be at least 8 characters",
+		},
+		{
+			name:            "Passwords don't match",
+			email:           "test@example.com",
+			password:        "password1",
+			confirmPassword: "password2",
+			expectedError:   "Passwords do not match",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := url.Values{}
+			data.Set("email", tc.email)
+			data.Set("password", tc.password)
+			data.Set("confirmPassword", tc.confirmPassword)
+
+			res := makePostRequest(t, client, "http://localhost:1323/register", data)
+			assert.Equal(t, 400, res.StatusCode)
+			body := readBody(res)
+			assert.Contains(t, body, tc.expectedError)
+
+			// Verify that no verification email was sent
+			mockEmailService := controller.EmailService.(*MockEmailService)
+			for _, email := range mockEmailService.SentEmails {
+				if email.Subject == "Verify your email address" && email.ToEmail == tc.email {
+					t.Fatal("Verification email should not have been sent for invalid data")
+				}
+			}
+		})
+	}
+}
+
+func TestRegistrationVerification(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	// Create an unverified user and verification token
+	email := "verify@example.com"
+	createTestUserWithPassword(t, controller, email, "password")
+	token := uuid.New().String()
+	createVerificationToken(t, controller, token, email, "registration",
+		time.Now().Unix(),
+		time.Now().Add(24*time.Hour).Unix())
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("token", token)
+
+	res := makePostRequest(t, client, "http://localhost:1323/verify", data)
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "Your email has been verified")
+
+	// Verify that the user is now verified
+	user, err := controller.Store.FindUser(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.True(t, user.Verified, "User should be verified after verification")
+}
+
+func TestRegistrationVerificationWithInvalidToken(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("token", "invalid-token")
+
+	res := makePostRequest(t, client, "http://localhost:1323/verify", data)
+	assert.Equal(t, 400, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "Invalid or expired verification link")
+}
+
+func TestRegistrationVerificationWithExpiredToken(t *testing.T) {
+	echoServer, controller := waitForServer(t)
+	defer cleanupTest(t, echoServer, controller)
+
+	// Create an unverified user and expired verification token
+	email := "expired@example.com"
+	createTestUserWithPassword(t, controller, email, "password")
+	token := uuid.New().String()
+	createVerificationToken(t, controller, token, email, "registration",
+		time.Now().Add(-48*time.Hour).Unix(),
+		time.Now().Add(-24*time.Hour).Unix())
+
+	client := createTestHttpClient()
+	data := url.Values{}
+	data.Set("token", token)
+
+	res := makePostRequest(t, client, "http://localhost:1323/verify", data)
+	assert.Equal(t, 400, res.StatusCode)
+	body := readBody(res)
+	assert.Contains(t, body, "Verification link has expired")
+
+	// Verify that the user is still unverified
+	user, err := controller.Store.FindUser(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.False(t, user.Verified, "User should still be unverified after expired verification")
+}
+
 // Helper functions start here
 type MockEmailService struct {
 	SentEmails []struct {
