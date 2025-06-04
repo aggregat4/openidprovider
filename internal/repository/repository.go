@@ -743,3 +743,36 @@ func (store *Store) DeleteExpiredAuthorizationCodes() error {
 	_, err := store.db.Exec("DELETE FROM codes WHERE created < ?", time.Now().Add(-10*time.Minute).Unix())
 	return err
 }
+
+func (store *Store) GetActiveVerificationTokensCount(email string) (int, error) {
+	var count int
+	err := store.db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM verification_tokens 
+		WHERE email = ? AND expires > ?`,
+		email, time.Now().Unix()).Scan(&count)
+	return count, err
+}
+
+func (store *Store) GetLastRegistrationAttempt(email string) (int64, error) {
+	var lastAttempt int64
+	err := store.db.QueryRow(`
+		SELECT MAX(created) 
+		FROM verification_tokens 
+		WHERE email = ? AND type = 'registration'`,
+		email).Scan(&lastAttempt)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return lastAttempt, err
+}
+
+func (store *Store) GetFailedVerificationAttempts(email string) (int, error) {
+	var count int
+	err := store.db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM verification_tokens 
+		WHERE email = ? AND type = 'registration' AND expires < ?`,
+		email, time.Now().Unix()).Scan(&count)
+	return count, err
+}

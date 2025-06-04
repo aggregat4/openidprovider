@@ -618,35 +618,89 @@ func (controller *Controller) register(c echo.Context) error {
 		})
 	}
 
-	// Check if user already exists and is verified
-	existingUser, err := controller.Store.FindUser(email)
+	// Check if user already exists
+	user, err := controller.Store.FindUser(email)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Internal error")
+		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+			Email: email,
+			Error: "Internal error",
+		})
 	}
 
-	if existingUser != nil {
-		isVerified, err := controller.Store.IsUserVerified(email)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, "Internal error")
+	if user != nil {
+		if user.Verified {
+			// If user is already verified, pretend registration was successful
+			return c.Redirect(http.StatusFound, "/login")
 		}
-		if isVerified {
-			return c.Render(http.StatusBadRequest, "register", RegisterPage{
+
+		// Check for registration cooldown
+		lastAttempt, err := controller.Store.GetLastRegistrationAttempt(email)
+		if err != nil {
+			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
 				Email: email,
-				Error: "An account with this email already exists",
+				Error: "Internal error",
 			})
 		}
-	}
 
-	// Hash password
-	hashedPassword, err := crypto.HashPassword(password)
-	if err != nil {
-		return c.String(http.StatusInternalServerError, "Internal error")
-	}
+		// 5 minute cooldown between registration attempts
+		if time.Now().Unix()-lastAttempt < 300 {
+			return c.Render(http.StatusTooManyRequests, "register", RegisterPage{
+				Email: email,
+				Error: "Please wait a few minutes before trying again",
+			})
+		}
 
-	// Create user
-	err = controller.Store.CreateUser(email, hashedPassword)
-	if err != nil {
-		return c.String(http.StatusInternalServerError, "Internal error")
+		// Check for too many failed verification attempts
+		failedAttempts, err := controller.Store.GetFailedVerificationAttempts(email)
+		if err != nil {
+			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+				Email: email,
+				Error: "Internal error",
+			})
+		}
+
+		// Block after 5 failed attempts
+		if failedAttempts >= 5 {
+			return c.Render(http.StatusTooManyRequests, "register", RegisterPage{
+				Email: email,
+				Error: "Too many failed verification attempts. Please try again later.",
+			})
+		}
+
+		// Check for too many active tokens
+		activeTokens, err := controller.Store.GetActiveVerificationTokensCount(email)
+		if err != nil {
+			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+				Email: email,
+				Error: "Internal error",
+			})
+		}
+
+		// Maximum 3 active tokens per email
+		if activeTokens >= 3 {
+			return c.Render(http.StatusTooManyRequests, "register", RegisterPage{
+				Email: email,
+				Error: "Too many active verification links. Please check your email or try again later.",
+			})
+		}
+	} else {
+		// Hash password
+		hashedPassword, err := crypto.HashPassword(password)
+		if err != nil {
+			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+				Email: email,
+				Error: "Internal error",
+			})
+		}
+
+		// Create user if not exists
+		err = controller.Store.CreateUser(email, hashedPassword)
+		if err != nil {
+			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+				Email: email,
+				Error: "Internal error",
+			})
+		}
 	}
 
 	// Generate verification token
@@ -661,7 +715,10 @@ func (controller *Controller) register(c echo.Context) error {
 
 	err = controller.Store.CreateVerificationToken(verificationToken)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Internal error")
+		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+			Email: email,
+			Error: "Internal error",
+		})
 	}
 
 	// Send verification email
@@ -669,7 +726,10 @@ func (controller *Controller) register(c echo.Context) error {
 	err = controller.EmailService.SendVerificationEmail(email, verificationLink)
 	if err != nil {
 		logger.Error("Failed to send verification email", "error", err)
-		// Continue with the flow even if email sending fails
+		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+			Email: email,
+			Error: "Failed to send verification email",
+		})
 	}
 
 	// Show success message
