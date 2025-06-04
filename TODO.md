@@ -40,7 +40,7 @@
 	  * ✅ we need a global limit to the number of emails we send in total (per day) as it would otherwise exhaust the subscription we have
 	* ✅ if a user already exists here and is verified, we should pretend to register and do nothing (or should we send confirmation email to the user?)
 	* ✅ if a user already exists and is not verified, we should send another verification email as per the debouncing logic above
-	* ❌ we should also have some upper bound to the number of verification emails that can be sent to an email address and then block that address from trying more verifications for a certain period of time
+	* ✅ we should also have some upper bound to the number of verification emails that can be sent to an email address and then block that address from trying more verifications for a certain period of time
   * ❌ write tests for all the email cleanup, backoff and blocking logic
 
 ## Scopes and Claims ❌
