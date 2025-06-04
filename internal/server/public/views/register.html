@@ -33,6 +33,7 @@
             type="email" 
             id="email" 
             name="email" 
+            autocomplete="email"
             required 
             autofocus
             {{if .Email}}value="{{.Email}}"{{end}}
@@ -45,6 +46,7 @@
             type="password" 
             id="password" 
             name="password" 
+            autocomplete="new-password"
             required 
           >
         </div>
@@ -55,6 +57,7 @@
             type="password" 
             id="confirmPassword" 
             name="confirmPassword" 
+            autocomplete="new-password"
             required
           >
         </div>
