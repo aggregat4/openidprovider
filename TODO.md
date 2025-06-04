@@ -4,6 +4,12 @@
 
   * verify why the demo setup login does not work, it says invalid credentials even if I use the same user and password used for created the demo db
 
+## OIDC an OAuth Features
+
+  * Support `prompt` with the value `none` in the authorization request by immediately returning an error (since we always reauthenticate, and in this case we shouldn't)
+  * Support `nonce` in the authorization request (and all the way through ID token generation)
+  * Go through all the security considerations of the OAuth 2 spec and verify whether additional measures are needed
+
 ## Self-Registration ✅
 
 ### Allow **registration**
