@@ -868,11 +868,15 @@ func (controller *Controller) register(c echo.Context) error {
 
 func (controller *Controller) showVerificationPage(c echo.Context) error {
 	logger.Info("showVerificationPage handler called")
-	token := c.QueryParam("token")
-	return c.Render(http.StatusBadRequest, "verify", VerifyPage{
-		Code:  token,
-		Error: "Invalid or missing verification code",
-	})
+	code := c.QueryParam("code")
+	if code == "" {
+		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
+			Code:  code,
+			Error: "Invalid or missing verification code",
+		})
+	} else {
+		return controller.verifyWithCode(c, code)
+	}
 }
 
 func (controller *Controller) verify(c echo.Context) error {
@@ -887,6 +891,12 @@ func (controller *Controller) verify(c echo.Context) error {
 		})
 	}
 	logger.Info("verify handler received code", "code", code)
+
+	return controller.verifyWithCode(c, code)
+}
+
+func (controller *Controller) verifyWithCode(c echo.Context, code string) error {
+	logger.Info("verifyWithCode handler called", "code", code)
 
 	// Find and validate token
 	verificationToken, err := controller.Store.FindVerificationToken(code)
@@ -1305,7 +1315,7 @@ func (controller *Controller) sendVerificationEmail(email string) error {
 	}
 
 	// Send verification email
-	verificationLink := fmt.Sprintf("%s/verify?token=%s", controller.Config.BaseUrl, token)
+	verificationLink := fmt.Sprintf("%s/verify?code=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendVerificationEmail(email, verificationLink)
 	if err != nil {
 		logger.Error("Failed to send verification email", "error", err)
