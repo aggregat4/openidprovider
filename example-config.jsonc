@@ -1,0 +1,131 @@
+{
+  // OpenID Provider Configuration Example
+  // This file contains all configuration options for the OpenID Provider service
+  // 
+  // Copy this file to your config directory and modify the values as needed.
+  // The default config location is: ~/.config/openidprovider/openidprovider.json
+  
+  // Database Configuration
+  // SQLite database filename (without .db extension). 
+  // The database will be created in the config directory.
+  "databasefilename": "openidprovider.db",
+  
+  // Server Configuration
+  // Port on which the server will listen for HTTP requests. Default: 1323
+  "serverport": 8080,
+  
+  // Base URL of the OpenID Provider. Must match the URL clients will use to access the service. 
+  // Required for JWT issuer and OpenID configuration endpoints.
+  "baseurl": "http://localhost:8080",
+  
+  // Security Keys (Required)
+  // Path to the RSA private key file in PEM format. Used for signing JWT tokens. Required.
+  // Generate with: openssl genrsa -out private.pem 2048
+  "privatekeypemfilename": "private.pem",
+  
+  // Path to the RSA public key file in PEM format. Used for JWKS endpoint. Required.
+  // Generate with: openssl rsa -in private.pem -pubout -out public.pem
+  "publickeypemfilename": "public.pem",
+  
+  // Server Timeouts
+  // HTTP server read timeout in seconds. Default: 5
+  "serverreadtimeoutseconds": 30,
+  
+  // HTTP server write timeout in seconds. Default: 10
+  "serverwritetimeoutseconds": 30,
+  
+  // OAuth 2.0 Client Configuration
+  // Array of OAuth 2.0 clients that are allowed to use this OpenID Provider.
+  "registeredclients": [
+    {
+      // Unique client identifier. Must match the client_id used in authorization requests.
+      "id": "example-client",
+      
+      // Client secret used for HTTP Basic Auth on the token endpoint. 
+      // Should be a strong, random string.
+      "basicauthsecret": "your-client-secret-here",
+      
+      // Array of allowed redirect URIs for this client. 
+      // Must exactly match the redirect_uri parameter in authorization requests.
+      "redirecturis": [
+        "http://localhost:8081/callback",
+        "https://yourdomain.com/callback"
+      ]
+    }
+  ],
+  
+  // JWT Configuration
+  // JWT configuration for ID token generation and validation.
+  "jwt": {
+    // JWT issuer claim. Usually set to the base URL. 
+    // If not specified, uses baseurl value.
+    "issuer": "http://localhost:8080",
+    
+    // Validity period for ID tokens in minutes. Default: 5
+    "idtokenvalidityminutes": 60
+  },
+  
+  // Cleanup Configuration
+  // Configuration for automatic cleanup of expired data.
+  "cleanup": {
+    // Maximum age in hours for unverified user accounts before cleanup. Default: 24
+    "unverifiedusermaxage": 24,
+    
+    // Interval in hours between cleanup runs. Default: 1
+    "cleanupinterval": 1
+  },
+  
+  // Email Configuration (SendGrid)
+  // SendGrid email service configuration. Required for sending verification emails, 
+  // password resets, account deletion confirmations, etc.
+  "sendgridConfig": {
+    // SendGrid API key for sending emails. Required unless using mock email server.
+    // Get your API key from: https://app.sendgrid.com/settings/api_keys
+    "apiKey": "your-sendgrid-api-key-here",
+    
+    // Email address that will appear as the sender. Must be verified in SendGrid.
+    "fromEmail": "noreply@yourdomain.com",
+    
+    // Display name for the sender email address.
+    "fromName": "Your Application Name",
+    
+    // Rate Limiting Configuration
+    // Email rate limiting configuration to prevent abuse.
+    "rateLimit": {
+      // Maximum number of emails that can be sent per day. Default: 1000
+      "maxEmailsPerDay": 1000,
+      
+      // Maximum number of emails that can be sent to the same address per day. Default: 3
+      "maxEmailsPerAddress": 3,
+      
+      // Duration to wait after rate limit is hit before allowing more emails. 
+      // Format: Go duration (e.g., '5m', '1h'). Default: '5m'
+      "backoffPeriod": "5m",
+      
+      // Duration to block an address after hitting rate limit. 
+      // Format: Go duration (e.g., '1h', '24h'). Default: '1h'
+      "blockPeriod": "1h"
+    }
+  },
+  
+  // Development/Testing Email Configuration
+  // URL for mock email demo server. If set, emails will be sent to this server 
+  // instead of SendGrid. Useful for development/testing. Leave empty to use SendGrid.
+  // Example: http://localhost:8080 (for demo server)
+  "mock_email_demo_server_url": "",
+  
+  // Captcha Configuration (ALTCHA)
+  // ALTCHA captcha configuration for bot protection on registration and other forms.
+  // ALTCHA is a privacy-friendly alternative to reCAPTCHA.
+  "altcha": {
+    // HMAC key for ALTCHA captcha verification. Should be a strong, random string. 
+    // Required for captcha functionality. Generate a random 32+ character string.
+    "hmacKey": "your-secret-hmac-key-here",
+    
+    // Maximum number for ALTCHA challenge generation. Default: 100000
+    "maxNumber": 100000,
+    
+    // Length of salt for ALTCHA challenge generation in bytes. Default: 12
+    "saltLength": 12
+  }
+} 
