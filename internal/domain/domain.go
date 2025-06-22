@@ -20,6 +20,13 @@ type JwtConfiguration struct {
 	PublicKey              *rsa.PublicKey
 }
 
+type AltchaConfiguration struct {
+	Enabled    bool   `json:"enabled"`
+	HMACKey    string `json:"hmacKey"`
+	MaxNumber  int64  `json:"maxNumber"`
+	SaltLength int    `json:"saltLength"`
+}
+
 type Configuration struct {
 	DatabaseFilename          string
 	ServerReadTimeoutSeconds  int
@@ -31,6 +38,7 @@ type Configuration struct {
 	SendgridConfig            SendgridConfiguration
 	CleanupConfig             CleanupConfiguration
 	MockEmailDemoServerURL    string
+	AltchaConfig              AltchaConfiguration
 }
 
 type SendgridConfiguration struct {

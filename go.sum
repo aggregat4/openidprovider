@@ -2,6 +2,8 @@ github.com/aggregat4/go-baselib v1.4.0 h1:DieoJPsXwS1XcIsV2eRDJa5KElCW/JJ84eidOx
 github.com/aggregat4/go-baselib v1.4.0/go.mod h1:2m8ptuVya9w/t8hP+gJ4p1/HGXEfJidtg0gutwLjdG0=
 github.com/aggregat4/go-baselib-services/v3 v3.3.1 h1:ZLoamfGAtTkoNk65pV8ddz/5bpq7cn6ptrjuzKNHn9s=
 github.com/aggregat4/go-baselib-services/v3 v3.3.1/go.mod h1:2/dcQ0PFzXgELx28MueMpVxJIMd7nGPnxHjaEtSJOeg=
+github.com/altcha-org/altcha-lib-go v0.2.0 h1:lg69azxednaDPkhdRhN3elWpfCeoptUMHgNYexF5hvE=
+github.com/altcha-org/altcha-lib-go v0.2.0/go.mod h1:I8ESLVWR9C58uvGufB/AJDPhaSU4+4Oh3DLpVtgwDAk=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

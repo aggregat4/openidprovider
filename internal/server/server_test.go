@@ -61,6 +61,12 @@ var serverConfig = domain.Configuration{
 		UnverifiedUserMaxAge: 24 * time.Hour,
 		CleanupInterval:      1 * time.Second,
 	},
+	AltchaConfig: domain.AltchaConfiguration{
+		Enabled:    false,
+		HMACKey:    "test-hmac-key",
+		MaxNumber:  100000,
+		SaltLength: 12,
+	},
 }
 
 // Test functions start here
@@ -966,7 +972,7 @@ func TestRegistrationVerification(t *testing.T) {
 	res := makePostRequest(t, client, "http://localhost:1323/verify", data)
 	assert.Equal(t, 200, res.StatusCode)
 	body := readBody(res)
-	assert.Contains(t, body, "Your email has been verified")
+	assert.Contains(t, body, "Verification successful")
 
 	// Verify that the user is now verified
 	user, err := controller.Store.FindUser(email)
@@ -982,12 +988,12 @@ func TestRegistrationVerificationWithInvalidToken(t *testing.T) {
 
 	client := createTestHttpClient()
 	data := url.Values{}
-	data.Set("token", "invalid-token")
+	data.Set("code", "invalid-token")
 
 	res := makePostRequest(t, client, "http://localhost:1323/verify", data)
 	assert.Equal(t, 400, res.StatusCode)
 	body := readBody(res)
-	assert.Contains(t, body, "Invalid or expired verification link")
+	assert.Contains(t, body, "Invalid or expired verification code")
 }
 
 func TestRegistrationVerificationWithExpiredToken(t *testing.T) {
@@ -1004,7 +1010,7 @@ func TestRegistrationVerificationWithExpiredToken(t *testing.T) {
 
 	client := createTestHttpClient()
 	data := url.Values{}
-	data.Set("token", token)
+	data.Set("code", token)
 
 	res := makePostRequest(t, client, "http://localhost:1323/verify", data)
 	assert.Equal(t, 400, res.StatusCode)

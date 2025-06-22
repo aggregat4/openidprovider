@@ -43,6 +43,10 @@
 	* ✅ we should also have some upper bound to the number of verification emails that can be sent to an email address and then block that address from trying more verifications for a certain period of time
   * ❌ write tests for all the email cleanup, backoff and blocking logic
 
+### Registration Spam Protection
+
+  * Integrate the ALTCHA Go library and the frontend component and test whether it works for a self-hosted captcha solution: the [Open Source Option from the website](https://altcha.org/docs/v2/)
+
 ## Scopes and Claims ❌
 
 We need to support our own services that require something like a set of 'groups' associated with a user so we can distinguish between various kinds of users with different capabilities. The way to implement that is with scopes and claims:

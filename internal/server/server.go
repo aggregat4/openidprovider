@@ -22,6 +22,7 @@ import (
 
 	baselibmiddleware "github.com/aggregat4/go-baselib-services/v3/middleware"
 	"github.com/aggregat4/go-baselib/crypto"
+	"github.com/altcha-org/altcha-lib-go"
 	"github.com/gorilla/sessions"
 
 	"github.com/go-jose/go-jose/v3"
@@ -559,9 +560,11 @@ func contains(list []string, item string) bool {
 }
 
 type RegisterPage struct {
-	Email   string
-	Error   string
-	Success string
+	Email           string
+	Error           string
+	Success         string
+	AltchaEnabled   bool
+	AltchaChallenge string
 }
 
 type VerifyPage struct {
@@ -590,10 +593,32 @@ type DeleteAccountPage struct {
 
 func (controller *Controller) showRegisterPage(c echo.Context) error {
 	logger.Info("showRegisterPage handler called")
+
+	altchaEnabled := controller.Config.AltchaConfig.Enabled && controller.Config.AltchaConfig.HMACKey != ""
+	altchaChallenge := ""
+
+	if altchaEnabled {
+		// Generate ALTCHA challenge
+		challenge, err := altcha.CreateChallenge(altcha.ChallengeOptions{
+			HMACKey:    controller.Config.AltchaConfig.HMACKey,
+			MaxNumber:  controller.Config.AltchaConfig.MaxNumber,
+			SaltLength: controller.Config.AltchaConfig.SaltLength,
+		})
+		if err != nil {
+			logger.Error("Failed to create ALTCHA challenge", "error", err)
+			// Continue without ALTCHA if generation fails
+			altchaEnabled = false
+		} else {
+			altchaChallenge = challenge.Challenge
+		}
+	}
+
 	return c.Render(http.StatusOK, "register", RegisterPage{
-		Email:   c.FormValue("email"),
-		Error:   "",
-		Success: "",
+		Email:           c.FormValue("email"),
+		Error:           "",
+		Success:         "",
+		AltchaEnabled:   altchaEnabled,
+		AltchaChallenge: altchaChallenge,
 	})
 }
 
@@ -616,6 +641,43 @@ func (controller *Controller) register(c echo.Context) error {
 			Email: email,
 			Error: "Passwords do not match",
 		})
+	}
+
+	// Verify ALTCHA if enabled
+	if controller.Config.AltchaConfig.Enabled && controller.Config.AltchaConfig.HMACKey != "" {
+		altchaSolution := c.FormValue("altcha")
+		if altchaSolution == "" {
+			return c.Render(http.StatusBadRequest, "register", RegisterPage{
+				Email: email,
+				Error: "Please complete the captcha",
+			})
+		}
+
+		// Parse the ALTCHA solution
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(altchaSolution), &payload); err != nil {
+			return c.Render(http.StatusBadRequest, "register", RegisterPage{
+				Email: email,
+				Error: "Invalid captcha solution",
+			})
+		}
+
+		// Verify the ALTCHA solution
+		ok, err := altcha.VerifySolution(payload, controller.Config.AltchaConfig.HMACKey, true)
+		if err != nil {
+			logger.Error("ALTCHA verification error", "error", err)
+			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+				Email: email,
+				Error: "Internal error during captcha verification",
+			})
+		}
+
+		if !ok {
+			return c.Render(http.StatusBadRequest, "register", RegisterPage{
+				Email: email,
+				Error: "Invalid captcha solution",
+			})
+		}
 	}
 
 	// Check if user already exists
@@ -752,20 +814,25 @@ func (controller *Controller) verify(c echo.Context) error {
 	logger.Info("verify handler called")
 	// get the token from the submitted form parameters
 	token := c.FormValue("code")
+	logger.Info("verify handler received token", "token", token)
 
 	// Find and validate token
 	verificationToken, err := controller.Store.FindVerificationToken(token)
 	if err != nil {
+		logger.Error("verify handler error finding token", "error", err)
 		return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
 			Error: "Internal error",
 		})
 	}
 
 	if verificationToken == nil {
+		logger.Info("verify handler token not found", "token", token)
 		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
 			Error: "Invalid or expired verification code",
 		})
 	}
+
+	logger.Info("verify handler found token", "token", token, "email", verificationToken.Email, "type", verificationToken.Type, "expires", verificationToken.Expires)
 
 	if verificationToken.Expires < time.Now().Unix() {
 		err := controller.Store.DeleteVerificationToken(token)

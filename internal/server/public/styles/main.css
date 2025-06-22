@@ -142,4 +142,34 @@ button {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   margin-top: var(--space-4);
+}
+
+/* ALTCHA Widget Styles */
+altcha-widget {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: var(--font-size-base);
+  min-height: 60px;
+  background-color: var(--color-background);
+  transition: border-color 0.2s;
+
+  &:focus-within {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -1px;
+    border-color: var(--color-primary);
+  }
+}
+
+altcha-widget[data-state="solved"] {
+  border-color: var(--color-success);
+  background-color: var(--color-success-light);
+}
+
+altcha-widget[data-state="error"] {
+  border-color: var(--color-error);
+  background-color: var(--color-error-light);
 } 

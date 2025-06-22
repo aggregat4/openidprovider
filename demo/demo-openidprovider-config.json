@@ -19,6 +19,12 @@
 		"issuer": "http://localhost:1301",
 		"idtokenvalidityminutes": 5
 	},
-	"mock_email_demo_server_url": "http://localhost:8080"
-
+	"mock_email_demo_server_url": "http://localhost:8080",
+	"altcha": {
+		"enabled": true,
+		"hmacKey": "demo-altcha-secret-key",
+		"maxNumber": 100000,
+		"saltLength": 12
+	}
 }
+	

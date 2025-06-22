@@ -37,5 +37,11 @@
 			"backoffPeriod": "5m",
 			"blockPeriod": "1h"
 		}
+	},
+	"altcha": {
+		"enabled": true,
+		"hmacKey": "your-secret-hmac-key-here",
+		"maxNumber": 100000,
+		"saltLength": 12
 	}
 }

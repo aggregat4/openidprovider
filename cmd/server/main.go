@@ -155,6 +155,28 @@ func readConfig(configFileLocation string) domain.Configuration {
 	// Get mock email demo server URL if configured
 	mockEmailDemoServerURL := k.String("mock_email_demo_server_url")
 
+	// Set default ALTCHA configuration
+	altchaConfig := domain.AltchaConfiguration{
+		Enabled:    false, // Default: disabled
+		HMACKey:    "",
+		MaxNumber:  100000, // Default: 100,000
+		SaltLength: 12,     // Default: 12 bytes
+	}
+
+	// Override with config file values if present
+	if k.Exists("altcha.enabled") {
+		altchaConfig.Enabled = k.Bool("altcha.enabled")
+	}
+	if k.Exists("altcha.hmackey") {
+		altchaConfig.HMACKey = k.String("altcha.hmackey")
+	}
+	if k.Exists("altcha.maxnumber") {
+		altchaConfig.MaxNumber = k.Int64("altcha.maxnumber")
+	}
+	if k.Exists("altcha.saltlength") {
+		altchaConfig.SaltLength = k.Int("altcha.saltlength")
+	}
+
 	return domain.Configuration{
 		DatabaseFilename:          databaseFilename,
 		ServerReadTimeoutSeconds:  serverReadTimeoutSeconds,
@@ -170,5 +192,6 @@ func readConfig(configFileLocation string) domain.Configuration {
 		},
 		CleanupConfig:          cleanupConfig,
 		MockEmailDemoServerURL: mockEmailDemoServerURL,
+		AltchaConfig:           altchaConfig,
 	}
 }
