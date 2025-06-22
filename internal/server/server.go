@@ -725,8 +725,6 @@ func (controller *Controller) register(c echo.Context) error {
 		return controller.renderRegisterError(c, email, "Password must be at least 8 characters long", altchaChallenge, http.StatusBadRequest)
 	}
 
-	// Verify ALTCHA if enabled
-	logger.Info("register handler ALTCHA verification enabled")
 	if altchaSolution == "" {
 		logger.Info("register handler ALTCHA solution missing")
 		return controller.renderRegisterError(c, email, "Please complete the captcha", altchaChallenge, http.StatusBadRequest)
