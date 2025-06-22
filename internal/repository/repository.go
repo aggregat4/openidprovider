@@ -755,16 +755,19 @@ func (store *Store) GetActiveVerificationTokensCount(email string) (int, error) 
 }
 
 func (store *Store) GetLastRegistrationAttempt(email string) (int64, error) {
-	var lastAttempt int64
+	var lastAttempt sql.NullInt64
 	err := store.db.QueryRow(`
 		SELECT MAX(created) 
 		FROM verification_tokens 
 		WHERE email = ? AND type = 'registration'`,
 		email).Scan(&lastAttempt)
-	if err == sql.ErrNoRows {
-		return 0, nil
+	if err != nil {
+		return 0, err
 	}
-	return lastAttempt, err
+	if lastAttempt.Valid {
+		return lastAttempt.Int64, nil
+	}
+	return 0, nil
 }
 
 func (store *Store) GetFailedVerificationAttempts(email string) (int, error) {

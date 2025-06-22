@@ -55,6 +55,7 @@ func RunServer(controller Controller) {
 
 func InitServer(controller Controller) *echo.Echo {
 	e := echo.New()
+
 	// Set server timeouts based on advice from https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/#1687428081
 	e.Server.ReadTimeout = time.Duration(controller.Config.ServerReadTimeoutSeconds) * time.Second
 	e.Server.WriteTimeout = time.Duration(controller.Config.ServerWriteTimeoutSeconds) * time.Second
@@ -73,7 +74,36 @@ func InitServer(controller Controller) *echo.Echo {
 	e.GET("/public/*", staticHandler)
 	// Initialize middleware
 	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
+
+	// Debug middleware to log all requests
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			logger.Info("Incoming request",
+				"method", c.Request().Method,
+				"path", c.Request().URL.Path,
+				"query", c.Request().URL.RawQuery,
+				"user_agent", c.Request().UserAgent(),
+				"remote_addr", c.Request().RemoteAddr)
+
+			// Log form data for POST requests
+			if c.Request().Method == "POST" {
+				if err := c.Request().ParseForm(); err == nil {
+					logger.Info("Form data", "form", c.Request().Form)
+				}
+			}
+
+			err := next(c)
+
+			logger.Info("Request completed",
+				"method", c.Request().Method,
+				"path", c.Request().URL.Path,
+				"status", c.Response().Status,
+				"error", err)
+
+			return err
+		}
+	})
+
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte(uuid.New().String()))))
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{Level: 5}))
 	e.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
@@ -547,7 +577,12 @@ type Template struct {
 }
 
 func (t *Template) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
-	return t.templates.ExecuteTemplate(w, name, data)
+	logger.Info("Rendering template", "template", name, "data", data)
+	err := t.templates.ExecuteTemplate(w, name, data)
+	if err != nil {
+		logger.Error("Template rendering error", "template", name, "error", err, "data", data)
+	}
+	return err
 }
 
 func contains(list []string, item string) bool {
@@ -628,8 +663,11 @@ func (controller *Controller) register(c echo.Context) error {
 	password := c.FormValue("password")
 	confirmPassword := c.FormValue("confirmPassword")
 
+	logger.Info("register handler form values", "email", email, "password_length", len(password), "confirmPassword_length", len(confirmPassword))
+
 	// Basic validation
 	if email == "" || password == "" || confirmPassword == "" {
+		logger.Info("register handler validation failed - empty fields")
 		return c.Render(http.StatusBadRequest, "register", RegisterPage{
 			Email: email,
 			Error: "All fields are required",
@@ -637,16 +675,28 @@ func (controller *Controller) register(c echo.Context) error {
 	}
 
 	if password != confirmPassword {
+		logger.Info("register handler validation failed - passwords don't match")
 		return c.Render(http.StatusBadRequest, "register", RegisterPage{
 			Email: email,
 			Error: "Passwords do not match",
 		})
 	}
 
+	// verify that the password is at least 8 characters long
+	if len(password) < 8 {
+		logger.Info("register handler validation failed - password too short")
+		return c.Render(http.StatusBadRequest, "register", RegisterPage{
+			Email: email,
+			Error: "Password must be at least 8 characters long",
+		})
+	}
+
 	// Verify ALTCHA if enabled
 	if controller.Config.AltchaConfig.Enabled && controller.Config.AltchaConfig.HMACKey != "" {
+		logger.Info("register handler ALTCHA verification enabled")
 		altchaSolution := c.FormValue("altcha")
 		if altchaSolution == "" {
+			logger.Info("register handler ALTCHA solution missing")
 			return c.Render(http.StatusBadRequest, "register", RegisterPage{
 				Email: email,
 				Error: "Please complete the captcha",
@@ -656,6 +706,7 @@ func (controller *Controller) register(c echo.Context) error {
 		// Parse the ALTCHA solution
 		var payload map[string]interface{}
 		if err := json.Unmarshal([]byte(altchaSolution), &payload); err != nil {
+			logger.Error("register handler ALTCHA solution parsing failed", "error", err)
 			return c.Render(http.StatusBadRequest, "register", RegisterPage{
 				Email: email,
 				Error: "Invalid captcha solution",
@@ -665,47 +716,56 @@ func (controller *Controller) register(c echo.Context) error {
 		// Verify the ALTCHA solution
 		ok, err := altcha.VerifySolution(payload, controller.Config.AltchaConfig.HMACKey, true)
 		if err != nil {
-			logger.Error("ALTCHA verification error", "error", err)
-			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-				Email: email,
-				Error: "Internal error during captcha verification",
-			})
-		}
-
-		if !ok {
+			logger.Error("register handler ALTCHA verification error", "error", err)
 			return c.Render(http.StatusBadRequest, "register", RegisterPage{
 				Email: email,
-				Error: "Invalid captcha solution",
+				Error: "Captcha verification failed",
 			})
 		}
+		if !ok {
+			logger.Info("register handler ALTCHA verification failed")
+			return c.Render(http.StatusBadRequest, "register", RegisterPage{
+				Email: email,
+				Error: "Captcha verification failed",
+			})
+		}
+		logger.Info("register handler ALTCHA verification successful")
 	}
 
 	// Check if user already exists
-	user, err := controller.Store.FindUser(email)
+	logger.Info("register handler checking if user exists", "email", email)
+	existingUser, err := controller.Store.FindUser(email)
 	if err != nil {
+		logger.Error("register handler error finding user", "error", err)
 		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
 			Email: email,
 			Error: "Internal error",
 		})
 	}
 
-	if user != nil {
-		if user.Verified {
-			// If user is already verified, pretend registration was successful
+	if existingUser != nil {
+		logger.Info("register handler user exists", "email", email, "verified", existingUser.Verified)
+
+		// If user is already verified, redirect to login
+		if existingUser.Verified {
+			logger.Info("register handler redirecting verified user to login")
 			return c.Redirect(http.StatusFound, "/login")
 		}
 
-		// Check for registration cooldown
+		// If user exists but is not verified, check if we should resend verification email
+		logger.Info("register handler checking if should resend verification for unverified user")
 		lastAttempt, err := controller.Store.GetLastRegistrationAttempt(email)
 		if err != nil {
+			logger.Error("register handler error getting last registration attempt", "error", err)
 			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
 				Email: email,
 				Error: "Internal error",
 			})
 		}
 
-		// 5 minute cooldown between registration attempts
+		// If last attempt was less than 5 minutes ago, show debounce message
 		if time.Now().Unix()-lastAttempt < 300 {
+			logger.Info("register handler email debouncing", "last_attempt", lastAttempt, "time_since", time.Now().Unix()-lastAttempt)
 			return c.Render(http.StatusTooManyRequests, "register", RegisterPage{
 				Email: email,
 				Error: "Please wait a few minutes before trying again",
@@ -715,6 +775,7 @@ func (controller *Controller) register(c echo.Context) error {
 		// Check for too many failed verification attempts
 		failedAttempts, err := controller.Store.GetFailedVerificationAttempts(email)
 		if err != nil {
+			logger.Error("register handler error getting failed verification attempts", "error", err)
 			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
 				Email: email,
 				Error: "Internal error",
@@ -723,6 +784,7 @@ func (controller *Controller) register(c echo.Context) error {
 
 		// Block after 5 failed attempts
 		if failedAttempts >= 5 {
+			logger.Info("register handler too many failed verification attempts", "failed_attempts", failedAttempts)
 			return c.Render(http.StatusTooManyRequests, "register", RegisterPage{
 				Email: email,
 				Error: "Too many failed verification attempts. Please try again later.",
@@ -732,6 +794,7 @@ func (controller *Controller) register(c echo.Context) error {
 		// Check for too many active tokens
 		activeTokens, err := controller.Store.GetActiveVerificationTokensCount(email)
 		if err != nil {
+			logger.Error("register handler error getting active tokens count", "error", err)
 			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
 				Email: email,
 				Error: "Internal error",
@@ -740,43 +803,45 @@ func (controller *Controller) register(c echo.Context) error {
 
 		// Maximum 3 active tokens per email
 		if activeTokens >= 3 {
+			logger.Info("register handler too many active tokens", "active_tokens", activeTokens)
 			return c.Render(http.StatusTooManyRequests, "register", RegisterPage{
 				Email: email,
 				Error: "Too many active verification links. Please check your email or try again later.",
 			})
 		}
-	} else {
-		// Hash password
-		hashedPassword, err := crypto.HashPassword(password)
+
+		// OK, we don't need to debounce the user, we can resend the verification email
+		logger.Info("register handler resending verification email for unverified user")
+		err = controller.sendVerificationEmail(email)
 		if err != nil {
+			logger.Error("register handler error sending verification email", "error", err)
 			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
 				Email: email,
 				Error: "Internal error",
 			})
 		}
 
-		// Create user if not exists
-		err = controller.Store.CreateUser(email, hashedPassword)
-		if err != nil {
-			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-				Email: email,
-				Error: "Internal error",
-			})
-		}
+		logger.Info("register handler verification email resent successfully")
+		return c.Render(http.StatusOK, "register", RegisterPage{
+			Email:   email,
+			Success: "Verification email sent. Please check your email to verify your account.",
+		})
 	}
 
-	// Generate verification token
-	token := uuid.New().String()
-	verificationToken := repository.VerificationToken{
-		Token:   token,
-		Email:   email,
-		Type:    "registration",
-		Created: time.Now().Unix(),
-		Expires: time.Now().Add(24 * time.Hour).Unix(),
-	}
-
-	err = controller.Store.CreateVerificationToken(verificationToken)
+	// Create new user
+	logger.Info("register handler creating new user", "email", email)
+	hashedPassword, err := crypto.HashPassword(password)
 	if err != nil {
+		logger.Error("register handler error hashing password", "error", err)
+		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+			Email: email,
+			Error: "Internal error",
+		})
+	}
+
+	err = controller.Store.CreateUser(email, hashedPassword)
+	if err != nil {
+		logger.Error("register handler error creating user", "error", err)
 		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
 			Email: email,
 			Error: "Internal error",
@@ -784,17 +849,17 @@ func (controller *Controller) register(c echo.Context) error {
 	}
 
 	// Send verification email
-	verificationLink := fmt.Sprintf("%s/verify?token=%s", controller.Config.BaseUrl, token)
-	err = controller.EmailService.SendVerificationEmail(email, verificationLink)
+	logger.Info("register handler sending verification email for new user")
+	err = controller.sendVerificationEmail(email)
 	if err != nil {
-		logger.Error("Failed to send verification email", "error", err)
+		logger.Error("register handler error sending verification email", "error", err)
 		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
 			Email: email,
-			Error: "Failed to send verification email",
+			Error: "Internal error",
 		})
 	}
 
-	// Show success message
+	logger.Info("register handler registration successful")
 	return c.Render(http.StatusOK, "register", RegisterPage{
 		Email:   email,
 		Success: "Registration successful! Please check your email to verify your account.",
@@ -812,12 +877,19 @@ func (controller *Controller) showVerificationPage(c echo.Context) error {
 
 func (controller *Controller) verify(c echo.Context) error {
 	logger.Info("verify handler called")
-	// get the token from the submitted form parameters
-	token := c.FormValue("code")
-	logger.Info("verify handler received token", "token", token)
+	// get the code from the submitted form parameters
+	code := c.FormValue("code")
+	// basic validation
+	if code == "" {
+		logger.Info("verify handler validation failed - code is empty")
+		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
+			Error: "Verification code is required",
+		})
+	}
+	logger.Info("verify handler received code", "code", code)
 
 	// Find and validate token
-	verificationToken, err := controller.Store.FindVerificationToken(token)
+	verificationToken, err := controller.Store.FindVerificationToken(code)
 	if err != nil {
 		logger.Error("verify handler error finding token", "error", err)
 		return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
@@ -826,16 +898,16 @@ func (controller *Controller) verify(c echo.Context) error {
 	}
 
 	if verificationToken == nil {
-		logger.Info("verify handler token not found", "token", token)
+		logger.Info("verify handler token not found", "code", code)
 		return c.Render(http.StatusBadRequest, "verify", VerifyPage{
 			Error: "Invalid or expired verification code",
 		})
 	}
 
-	logger.Info("verify handler found token", "token", token, "email", verificationToken.Email, "type", verificationToken.Type, "expires", verificationToken.Expires)
+	logger.Info("verify handler found token", "code", code, "email", verificationToken.Email, "type", verificationToken.Type, "expires", verificationToken.Expires)
 
 	if verificationToken.Expires < time.Now().Unix() {
-		err := controller.Store.DeleteVerificationToken(token)
+		err := controller.Store.DeleteVerificationToken(code)
 		if err != nil {
 			return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
 				Error: "Internal error",
@@ -855,7 +927,7 @@ func (controller *Controller) verify(c echo.Context) error {
 	}
 
 	// Delete used token
-	err = controller.Store.DeleteVerificationToken(token)
+	err = controller.Store.DeleteVerificationToken(code)
 	if err != nil {
 		return c.Render(http.StatusInternalServerError, "verify", VerifyPage{
 			Error: "Internal error",
@@ -1205,16 +1277,40 @@ func (controller *Controller) resendDeleteVerification(c echo.Context) error {
 }
 
 func (controller *Controller) validateCredentials(username, password string) (bool, error) {
-	logger.Info("validateCredentials called", "username", username)
 	user, err := controller.Store.FindUser(username)
 	if err != nil {
-		return false, fmt.Errorf("failed to find user: %w", err)
+		return false, err
 	}
 	if user == nil {
 		return false, nil
 	}
-	if !user.Verified {
-		return false, nil
-	}
 	return crypto.CheckPasswordHash(password, user.Password), nil
+}
+
+func (controller *Controller) sendVerificationEmail(email string) error {
+	// Generate verification token
+	token := uuid.New().String()
+	verificationToken := repository.VerificationToken{
+		Token:   token,
+		Email:   email,
+		Type:    "registration",
+		Created: time.Now().Unix(),
+		Expires: time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	err := controller.Store.CreateVerificationToken(verificationToken)
+	if err != nil {
+		logger.Error("Failed to create verification token", "error", err)
+		return err
+	}
+
+	// Send verification email
+	verificationLink := fmt.Sprintf("%s/verify?token=%s", controller.Config.BaseUrl, token)
+	err = controller.EmailService.SendVerificationEmail(email, verificationLink)
+	if err != nil {
+		logger.Error("Failed to send verification email", "error", err)
+		return err
+	}
+
+	return nil
 }

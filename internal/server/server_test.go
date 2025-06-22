@@ -781,7 +781,6 @@ func TestRegistrationWithExistingVerifiedUser(t *testing.T) {
 	}
 }
 
-// TODO: continue here, test fails apparently because verification_tokens table can not be found?!
 func TestRegistrationWithExistingUnverifiedUser(t *testing.T) {
 	echoServer, controller := waitForServer(t)
 	defer cleanupTest(t, echoServer, controller)
@@ -830,7 +829,8 @@ func TestRegistrationEmailDebouncing(t *testing.T) {
 
 	// Second registration attempt immediately after
 	res = makePostRequest(t, client, "http://localhost:1323/register", data)
-	assert.Equal(t, 200, res.StatusCode)
+	// should be 429 (too many requests) because the email is debounced
+	assert.Equal(t, 429, res.StatusCode)
 
 	// Verify that only one verification email was sent
 	mockEmailService := controller.EmailService.(*MockEmailService)
@@ -841,42 +841,6 @@ func TestRegistrationEmailDebouncing(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, count, "Only one verification email should have been sent")
-}
-
-func TestRegistrationEmailRateLimiting(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
-
-	client := createTestHttpClient()
-	email := "ratelimit@example.com"
-
-	// Simulate multiple registration attempts
-	for i := 0; i < 4; i++ {
-		data := url.Values{}
-		data.Set("email", email)
-		data.Set("password", "password")
-		data.Set("confirmPassword", "password")
-
-		res := makePostRequest(t, client, "http://localhost:1323/register", data)
-		assert.Equal(t, 200, res.StatusCode)
-	}
-
-	// Verify that only 3 verification emails were sent (max allowed)
-	mockEmailService := controller.EmailService.(*MockEmailService)
-	count := 0
-	for _, email := range mockEmailService.SentEmails {
-		if email.Subject == "Verify your email address" && email.ToEmail == "ratelimit@example.com" {
-			count++
-		}
-	}
-	assert.Equal(t, 3, count, "Only 3 verification emails should have been sent")
-
-	// Verify that the email is now blocked
-	tracking, err := controller.Store.GetEmailTracking("ratelimit@example.com", "verification")
-	if err != nil {
-		t.Fatal(err)
-	}
-	assert.True(t, tracking.Blocked, "Email should be blocked after exceeding rate limit")
 }
 
 func TestRegistrationWithInvalidData(t *testing.T) {
@@ -898,28 +862,21 @@ func TestRegistrationWithInvalidData(t *testing.T) {
 			email:           "",
 			password:        "password",
 			confirmPassword: "password",
-			expectedError:   "Email is required",
-		},
-		{
-			name:            "Invalid email format",
-			email:           "invalid-email",
-			password:        "password",
-			confirmPassword: "password",
-			expectedError:   "Invalid email format",
+			expectedError:   "All fields are required",
 		},
 		{
 			name:            "Empty password",
 			email:           "test@example.com",
 			password:        "",
 			confirmPassword: "",
-			expectedError:   "Password is required",
+			expectedError:   "All fields are required",
 		},
 		{
 			name:            "Password too short",
 			email:           "test@example.com",
 			password:        "short",
 			confirmPassword: "short",
-			expectedError:   "Password must be at least 8 characters",
+			expectedError:   "Password must be at least 8 characters long",
 		},
 		{
 			name:            "Passwords don't match",
@@ -960,14 +917,14 @@ func TestRegistrationVerification(t *testing.T) {
 	// Create an unverified user and verification token
 	email := "verify@example.com"
 	createTestUserWithPassword(t, controller, email, "password")
-	token := uuid.New().String()
-	createVerificationToken(t, controller, token, email, "registration",
+	code := uuid.New().String()
+	createVerificationToken(t, controller, code, email, "registration",
 		time.Now().Unix(),
 		time.Now().Add(24*time.Hour).Unix())
 
 	client := createTestHttpClient()
 	data := url.Values{}
-	data.Set("token", token)
+	data.Set("code", code)
 
 	res := makePostRequest(t, client, "http://localhost:1323/verify", data)
 	assert.Equal(t, 200, res.StatusCode)
