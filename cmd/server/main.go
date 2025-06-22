@@ -157,24 +157,20 @@ func readConfig(configFileLocation string) domain.Configuration {
 
 	// Set default ALTCHA configuration
 	altchaConfig := domain.AltchaConfiguration{
-		Enabled:    false, // Default: disabled
 		HMACKey:    "",
 		MaxNumber:  100000, // Default: 100,000
 		SaltLength: 12,     // Default: 12 bytes
 	}
 
 	// Override with config file values if present
-	if k.Exists("altcha.enabled") {
-		altchaConfig.Enabled = k.Bool("altcha.enabled")
+	if k.Exists("altcha.hmacKey") {
+		altchaConfig.HMACKey = k.String("altcha.hmacKey")
 	}
-	if k.Exists("altcha.hmackey") {
-		altchaConfig.HMACKey = k.String("altcha.hmackey")
+	if k.Exists("altcha.maxNumber") {
+		altchaConfig.MaxNumber = k.Int64("altcha.maxNumber")
 	}
-	if k.Exists("altcha.maxnumber") {
-		altchaConfig.MaxNumber = k.Int64("altcha.maxnumber")
-	}
-	if k.Exists("altcha.saltlength") {
-		altchaConfig.SaltLength = k.Int("altcha.saltlength")
+	if k.Exists("altcha.saltLength") {
+		altchaConfig.SaltLength = k.Int("altcha.saltLength")
 	}
 
 	return domain.Configuration{

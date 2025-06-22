@@ -598,8 +598,25 @@ type RegisterPage struct {
 	Email           string
 	Error           string
 	Success         string
-	AltchaEnabled   bool
 	AltchaChallenge string
+}
+
+// renderRegisterError is a helper function to reduce repetitive error handling in the register method
+func (controller *Controller) renderRegisterError(c echo.Context, email, errorMsg, altchaChallenge string, statusCode int) error {
+	return c.Render(statusCode, "register", RegisterPage{
+		Email:           email,
+		Error:           errorMsg,
+		AltchaChallenge: altchaChallenge,
+	})
+}
+
+// renderRegisterSuccess is a helper function to reduce repetitive success handling in the register method
+func (controller *Controller) renderRegisterSuccess(c echo.Context, email, successMsg, altchaChallenge string) error {
+	return c.Render(http.StatusOK, "register", RegisterPage{
+		Email:           email,
+		Success:         successMsg,
+		AltchaChallenge: altchaChallenge,
+	})
 }
 
 type VerifyPage struct {
@@ -629,32 +646,37 @@ type DeleteAccountPage struct {
 func (controller *Controller) showRegisterPage(c echo.Context) error {
 	logger.Info("showRegisterPage handler called")
 
-	altchaEnabled := controller.Config.AltchaConfig.Enabled && controller.Config.AltchaConfig.HMACKey != ""
-	altchaChallenge := ""
-
-	if altchaEnabled {
-		// Generate ALTCHA challenge
-		challenge, err := altcha.CreateChallenge(altcha.ChallengeOptions{
-			HMACKey:    controller.Config.AltchaConfig.HMACKey,
-			MaxNumber:  controller.Config.AltchaConfig.MaxNumber,
-			SaltLength: controller.Config.AltchaConfig.SaltLength,
-		})
-		if err != nil {
-			logger.Error("Failed to create ALTCHA challenge", "error", err)
-			// Continue without ALTCHA if generation fails
-			altchaEnabled = false
-		} else {
-			altchaChallenge = challenge.Challenge
-		}
-	}
-
-	return c.Render(http.StatusOK, "register", RegisterPage{
-		Email:           c.FormValue("email"),
-		Error:           "",
-		Success:         "",
-		AltchaEnabled:   altchaEnabled,
-		AltchaChallenge: altchaChallenge,
+	// Generate ALTCHA challenge
+	challenge, err := altcha.CreateChallenge(altcha.ChallengeOptions{
+		HMACKey:    controller.Config.AltchaConfig.HMACKey,
+		MaxNumber:  controller.Config.AltchaConfig.MaxNumber,
+		SaltLength: controller.Config.AltchaConfig.SaltLength,
 	})
+	if err != nil {
+		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+			Email:           "",
+			Error:           "Internal error",
+			AltchaChallenge: "",
+		})
+	} else {
+		// Convert challenge to JSON
+		challengeJSON, err := json.Marshal(challenge)
+		if err != nil {
+			logger.Error("Failed to marshal ALTCHA challenge to JSON", "error", err)
+			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
+				Email:           "",
+				Error:           "Internal error",
+				AltchaChallenge: "",
+			})
+		}
+		logger.Info("showRegisterPage handler generated ALTCHA challenge", "challenge", string(challengeJSON))
+		return c.Render(http.StatusOK, "register", RegisterPage{
+			Email:           c.FormValue("email"),
+			Error:           "",
+			Success:         "",
+			AltchaChallenge: string(challengeJSON),
+		})
+	}
 }
 
 func (controller *Controller) register(c echo.Context) error {
@@ -662,85 +684,72 @@ func (controller *Controller) register(c echo.Context) error {
 	email := c.FormValue("email")
 	password := c.FormValue("password")
 	confirmPassword := c.FormValue("confirmPassword")
+	altchaSolution := c.FormValue("altcha")
 
-	logger.Info("register handler form values", "email", email, "password_length", len(password), "confirmPassword_length", len(confirmPassword))
+	logger.Info("register handler form values", "email", email, "password_length", len(password), "confirmPassword_length", len(confirmPassword), "altcha_solution", string(altchaSolution))
+
+	// Prepare ALTCHA configuration for all responses
+	// Generate ALTCHA challenge
+	challenge, err := altcha.CreateChallenge(altcha.ChallengeOptions{
+		HMACKey:    controller.Config.AltchaConfig.HMACKey,
+		MaxNumber:  controller.Config.AltchaConfig.MaxNumber,
+		SaltLength: controller.Config.AltchaConfig.SaltLength,
+	})
+	if err != nil {
+		logger.Error("Failed to create ALTCHA challenge", "error", err)
+		return controller.renderRegisterError(c, email, "Internal error", "", http.StatusInternalServerError)
+	}
+	// Convert challenge to JSON
+	challengeJSON, err := json.Marshal(challenge)
+	if err != nil {
+		logger.Error("Failed to marshal ALTCHA challenge to JSON", "error", err)
+		return controller.renderRegisterError(c, email, "Internal error", "", http.StatusInternalServerError)
+	}
+	altchaChallenge := string(challengeJSON)
+	logger.Info("register handler generated ALTCHA challenge", "challenge", string(challengeJSON))
 
 	// Basic validation
 	if email == "" || password == "" || confirmPassword == "" {
 		logger.Info("register handler validation failed - empty fields")
-		return c.Render(http.StatusBadRequest, "register", RegisterPage{
-			Email: email,
-			Error: "All fields are required",
-		})
+		return controller.renderRegisterError(c, email, "All fields are required", altchaChallenge, http.StatusBadRequest)
 	}
 
 	if password != confirmPassword {
 		logger.Info("register handler validation failed - passwords don't match")
-		return c.Render(http.StatusBadRequest, "register", RegisterPage{
-			Email: email,
-			Error: "Passwords do not match",
-		})
+		return controller.renderRegisterError(c, email, "Passwords do not match", altchaChallenge, http.StatusBadRequest)
 	}
 
 	// verify that the password is at least 8 characters long
 	if len(password) < 8 {
 		logger.Info("register handler validation failed - password too short")
-		return c.Render(http.StatusBadRequest, "register", RegisterPage{
-			Email: email,
-			Error: "Password must be at least 8 characters long",
-		})
+		return controller.renderRegisterError(c, email, "Password must be at least 8 characters long", altchaChallenge, http.StatusBadRequest)
 	}
 
 	// Verify ALTCHA if enabled
-	if controller.Config.AltchaConfig.Enabled && controller.Config.AltchaConfig.HMACKey != "" {
-		logger.Info("register handler ALTCHA verification enabled")
-		altchaSolution := c.FormValue("altcha")
-		if altchaSolution == "" {
-			logger.Info("register handler ALTCHA solution missing")
-			return c.Render(http.StatusBadRequest, "register", RegisterPage{
-				Email: email,
-				Error: "Please complete the captcha",
-			})
-		}
-
-		// Parse the ALTCHA solution
-		var payload map[string]interface{}
-		if err := json.Unmarshal([]byte(altchaSolution), &payload); err != nil {
-			logger.Error("register handler ALTCHA solution parsing failed", "error", err)
-			return c.Render(http.StatusBadRequest, "register", RegisterPage{
-				Email: email,
-				Error: "Invalid captcha solution",
-			})
-		}
-
-		// Verify the ALTCHA solution
-		ok, err := altcha.VerifySolution(payload, controller.Config.AltchaConfig.HMACKey, true)
-		if err != nil {
-			logger.Error("register handler ALTCHA verification error", "error", err)
-			return c.Render(http.StatusBadRequest, "register", RegisterPage{
-				Email: email,
-				Error: "Captcha verification failed",
-			})
-		}
-		if !ok {
-			logger.Info("register handler ALTCHA verification failed")
-			return c.Render(http.StatusBadRequest, "register", RegisterPage{
-				Email: email,
-				Error: "Captcha verification failed",
-			})
-		}
-		logger.Info("register handler ALTCHA verification successful")
+	logger.Info("register handler ALTCHA verification enabled")
+	if altchaSolution == "" {
+		logger.Info("register handler ALTCHA solution missing")
+		return controller.renderRegisterError(c, email, "Please complete the captcha", altchaChallenge, http.StatusBadRequest)
 	}
+
+	// Verify the ALTCHA solution (the library decodes the base64 encoded solution)
+	ok, err := altcha.VerifySolution(altchaSolution, controller.Config.AltchaConfig.HMACKey, true)
+	if err != nil {
+		logger.Error("register handler ALTCHA verification error", "error", err)
+		return controller.renderRegisterError(c, email, "Captcha verification failed", altchaChallenge, http.StatusBadRequest)
+	}
+	if !ok {
+		logger.Info("register handler ALTCHA verification failed")
+		return controller.renderRegisterError(c, email, "Captcha verification failed", altchaChallenge, http.StatusBadRequest)
+	}
+	logger.Info("register handler ALTCHA verification successful")
 
 	// Check if user already exists
 	logger.Info("register handler checking if user exists", "email", email)
 	existingUser, err := controller.Store.FindUser(email)
 	if err != nil {
 		logger.Error("register handler error finding user", "error", err)
-		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-			Email: email,
-			Error: "Internal error",
-		})
+		return controller.renderRegisterError(c, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 	}
 
 	if existingUser != nil {
@@ -757,57 +766,39 @@ func (controller *Controller) register(c echo.Context) error {
 		lastAttempt, err := controller.Store.GetLastRegistrationAttempt(email)
 		if err != nil {
 			logger.Error("register handler error getting last registration attempt", "error", err)
-			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-				Email: email,
-				Error: "Internal error",
-			})
+			return controller.renderRegisterError(c, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		}
 
 		// If last attempt was less than 5 minutes ago, show debounce message
 		if time.Now().Unix()-lastAttempt < 300 {
 			logger.Info("register handler email debouncing", "last_attempt", lastAttempt, "time_since", time.Now().Unix()-lastAttempt)
-			return c.Render(http.StatusTooManyRequests, "register", RegisterPage{
-				Email: email,
-				Error: "Please wait a few minutes before trying again",
-			})
+			return controller.renderRegisterError(c, email, "Please wait a few minutes before trying again", altchaChallenge, http.StatusTooManyRequests)
 		}
 
 		// Check for too many failed verification attempts
 		failedAttempts, err := controller.Store.GetFailedVerificationAttempts(email)
 		if err != nil {
 			logger.Error("register handler error getting failed verification attempts", "error", err)
-			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-				Email: email,
-				Error: "Internal error",
-			})
+			return controller.renderRegisterError(c, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		}
 
 		// Block after 5 failed attempts
 		if failedAttempts >= 5 {
 			logger.Info("register handler too many failed verification attempts", "failed_attempts", failedAttempts)
-			return c.Render(http.StatusTooManyRequests, "register", RegisterPage{
-				Email: email,
-				Error: "Too many failed verification attempts. Please try again later.",
-			})
+			return controller.renderRegisterError(c, email, "Too many failed verification attempts. Please try again later.", altchaChallenge, http.StatusTooManyRequests)
 		}
 
 		// Check for too many active tokens
 		activeTokens, err := controller.Store.GetActiveVerificationTokensCount(email)
 		if err != nil {
 			logger.Error("register handler error getting active tokens count", "error", err)
-			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-				Email: email,
-				Error: "Internal error",
-			})
+			return controller.renderRegisterError(c, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		}
 
 		// Maximum 3 active tokens per email
 		if activeTokens >= 3 {
 			logger.Info("register handler too many active tokens", "active_tokens", activeTokens)
-			return c.Render(http.StatusTooManyRequests, "register", RegisterPage{
-				Email: email,
-				Error: "Too many active verification links. Please check your email or try again later.",
-			})
+			return controller.renderRegisterError(c, email, "Too many active verification links. Please check your email or try again later.", altchaChallenge, http.StatusTooManyRequests)
 		}
 
 		// OK, we don't need to debounce the user, we can resend the verification email
@@ -815,17 +806,11 @@ func (controller *Controller) register(c echo.Context) error {
 		err = controller.sendVerificationEmail(email)
 		if err != nil {
 			logger.Error("register handler error sending verification email", "error", err)
-			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-				Email: email,
-				Error: "Internal error",
-			})
+			return controller.renderRegisterError(c, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		}
 
 		logger.Info("register handler verification email resent successfully")
-		return c.Render(http.StatusOK, "register", RegisterPage{
-			Email:   email,
-			Success: "Verification email sent. Please check your email to verify your account.",
-		})
+		return controller.renderRegisterSuccess(c, email, "Verification email sent. Please check your email to verify your account.", altchaChallenge)
 	}
 
 	// Create new user
@@ -833,19 +818,13 @@ func (controller *Controller) register(c echo.Context) error {
 	hashedPassword, err := crypto.HashPassword(password)
 	if err != nil {
 		logger.Error("register handler error hashing password", "error", err)
-		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-			Email: email,
-			Error: "Internal error",
-		})
+		return controller.renderRegisterError(c, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 	}
 
 	err = controller.Store.CreateUser(email, hashedPassword)
 	if err != nil {
 		logger.Error("register handler error creating user", "error", err)
-		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-			Email: email,
-			Error: "Internal error",
-		})
+		return controller.renderRegisterError(c, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 	}
 
 	// Send verification email
@@ -853,17 +832,11 @@ func (controller *Controller) register(c echo.Context) error {
 	err = controller.sendVerificationEmail(email)
 	if err != nil {
 		logger.Error("register handler error sending verification email", "error", err)
-		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-			Email: email,
-			Error: "Internal error",
-		})
+		return controller.renderRegisterError(c, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 	}
 
 	logger.Info("register handler registration successful")
-	return c.Render(http.StatusOK, "register", RegisterPage{
-		Email:   email,
-		Success: "Registration successful! Please check your email to verify your account.",
-	})
+	return controller.renderRegisterSuccess(c, email, "Registration successful! Please check your email to verify your account.", altchaChallenge)
 }
 
 func (controller *Controller) showVerificationPage(c echo.Context) error {

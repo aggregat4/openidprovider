@@ -7,9 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Register</title>
   <link rel="stylesheet" href="/public/styles/main.css">
-  {{if .AltchaEnabled}}
-  <script src="https://cdn.jsdelivr.net/npm/altcha@2/dist/altcha.min.js"></script>
-  {{end}}
+  <script src="https://cdn.jsdelivr.net/npm/altcha@2/dist/altcha.min.js" type="module"></script>
 </head>
 <body>
   <main>
@@ -65,17 +63,15 @@
           >
         </div>
 
-        {{if .AltchaEnabled}}
         <div class="form-group">
           <label for="altcha">Verification</label>
           <altcha-widget 
             id="altcha"
             name="altcha"
-            challenge="{{.AltchaChallenge}}"
+            challengejson="{{.AltchaChallenge}}"
             required
           ></altcha-widget>
         </div>
-        {{end}}
 
         <button type="submit">Create Account</button>
       </form>

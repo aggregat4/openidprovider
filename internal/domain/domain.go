@@ -21,7 +21,6 @@ type JwtConfiguration struct {
 }
 
 type AltchaConfiguration struct {
-	Enabled    bool   `json:"enabled"`
 	HMACKey    string `json:"hmacKey"`
 	MaxNumber  int64  `json:"maxNumber"`
 	SaltLength int    `json:"saltLength"`

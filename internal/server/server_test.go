@@ -62,7 +62,6 @@ var serverConfig = domain.Configuration{
 		CleanupInterval:      1 * time.Second,
 	},
 	AltchaConfig: domain.AltchaConfiguration{
-		Enabled:    false,
 		HMACKey:    "test-hmac-key",
 		MaxNumber:  100000,
 		SaltLength: 12,
