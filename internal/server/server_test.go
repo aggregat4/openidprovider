@@ -727,6 +727,7 @@ func TestRegistrationWithNewUser(t *testing.T) {
 	data.Set("email", "newuser@example.com")
 	data.Set("password", "newpassword")
 	data.Set("confirmPassword", "newpassword")
+	data.Set("altcha", "mock-solution")
 
 	res := makePostRequest(t, client, "http://localhost:1323/register", data)
 	assert.Equal(t, 200, res.StatusCode)
@@ -765,6 +766,7 @@ func TestRegistrationWithExistingVerifiedUser(t *testing.T) {
 	data.Set("email", "existing@example.com")
 	data.Set("password", "newpassword")
 	data.Set("confirmPassword", "newpassword")
+	data.Set("altcha", "mock-solution")
 
 	res := makePostRequest(t, client, "http://localhost:1323/register", data)
 	assert.Equal(t, 302, res.StatusCode)
@@ -792,6 +794,7 @@ func TestRegistrationWithExistingUnverifiedUser(t *testing.T) {
 	data.Set("email", "unverified@example.com")
 	data.Set("password", "newpassword")
 	data.Set("confirmPassword", "newpassword")
+	data.Set("altcha", "mock-solution")
 
 	res := makePostRequest(t, client, "http://localhost:1323/register", data)
 	assert.Equal(t, 200, res.StatusCode)
@@ -822,6 +825,7 @@ func TestRegistrationEmailDebouncing(t *testing.T) {
 	data.Set("email", email)
 	data.Set("password", "password")
 	data.Set("confirmPassword", "password")
+	data.Set("altcha", "mock-solution")
 
 	res := makePostRequest(t, client, "http://localhost:1323/register", data)
 	assert.Equal(t, 200, res.StatusCode)
@@ -892,6 +896,7 @@ func TestRegistrationWithInvalidData(t *testing.T) {
 			data.Set("email", tc.email)
 			data.Set("password", tc.password)
 			data.Set("confirmPassword", tc.confirmPassword)
+			data.Set("altcha", "mock-solution")
 
 			res := makePostRequest(t, client, "http://localhost:1323/register", data)
 			assert.Equal(t, 400, res.StatusCode)
@@ -1031,6 +1036,21 @@ func (m *MockEmailService) SendDeleteAccountEmail(toEmail, deleteLink string) er
 	return nil
 }
 
+// MockCaptchaVerifier implements CaptchaVerifier for testing
+type MockCaptchaVerifier struct{}
+
+var _ server.CaptchaVerifier = (*MockCaptchaVerifier)(nil)
+
+func (m *MockCaptchaVerifier) CreateChallenge() (string, error) {
+	// Return a mock challenge JSON for testing
+	return `{"algorithm":"SHA-256","challenge":"mock-challenge","salt":"mock-salt","signature":"mock-signature"}`, nil
+}
+
+func (m *MockCaptchaVerifier) VerifySolution(solution string) (bool, error) {
+	// Always return true for testing - this allows tests to pass without solving captcha
+	return true, nil
+}
+
 func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 	fmt.Printf("DEBUG: Starting waitForServer\n")
 	loadKeys(t)
@@ -1043,9 +1063,10 @@ func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 	}
 	fmt.Printf("DEBUG: Database initialized successfully\n")
 	controller := server.Controller{
-		Store:        &store,
-		Config:       serverConfig,
-		EmailService: &MockEmailService{},
+		Store:           &store,
+		Config:          serverConfig,
+		EmailService:    &MockEmailService{},
+		CaptchaVerifier: &MockCaptchaVerifier{},
 	}
 	fmt.Printf("DEBUG: Creating server\n")
 	echoServer := server.InitServer(controller)

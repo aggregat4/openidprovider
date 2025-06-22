@@ -46,9 +46,10 @@ func main() {
 	}
 
 	server.RunServer(server.Controller{
-		Store:        &store,
-		Config:       config,
-		EmailService: emailSender,
+		Store:           &store,
+		Config:          config,
+		EmailService:    emailSender,
+		CaptchaVerifier: server.NewAltchaVerifier(config.AltchaConfig),
 	})
 }
 

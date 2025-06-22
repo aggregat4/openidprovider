@@ -40,11 +40,52 @@ var staticFiles embed.FS
 
 const ContentTypeJson = "application/json;charset=UTF-8"
 
+// CaptchaVerifier defines the interface for captcha verification
+type CaptchaVerifier interface {
+	CreateChallenge() (string, error)
+	VerifySolution(solution string) (bool, error)
+}
+
+// AltchaVerifier implements CaptchaVerifier using the ALTCHA library
+type AltchaVerifier struct {
+	config domain.AltchaConfiguration
+}
+
+// NewAltchaVerifier creates a new ALTCHA-based captcha verifier
+func NewAltchaVerifier(config domain.AltchaConfiguration) CaptchaVerifier {
+	return &AltchaVerifier{config: config}
+}
+
+// CreateChallenge creates a new ALTCHA challenge
+func (a *AltchaVerifier) CreateChallenge() (string, error) {
+	challenge, err := altcha.CreateChallenge(altcha.ChallengeOptions{
+		HMACKey:    a.config.HMACKey,
+		MaxNumber:  a.config.MaxNumber,
+		SaltLength: a.config.SaltLength,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	challengeJSON, err := json.Marshal(challenge)
+	if err != nil {
+		return "", err
+	}
+
+	return string(challengeJSON), nil
+}
+
+// VerifySolution verifies an ALTCHA solution
+func (a *AltchaVerifier) VerifySolution(solution string) (bool, error) {
+	return altcha.VerifySolution(solution, a.config.HMACKey, true)
+}
+
 type Controller struct {
-	Store        *repository.Store
-	Config       domain.Configuration
-	EmailService email.EmailSender
-	CleanupJob   *cleanup.CleanupJob
+	Store           *repository.Store
+	Config          domain.Configuration
+	EmailService    email.EmailSender
+	CleanupJob      *cleanup.CleanupJob
+	CaptchaVerifier CaptchaVerifier
 }
 
 func RunServer(controller Controller) {
@@ -647,36 +688,22 @@ func (controller *Controller) showRegisterPage(c echo.Context) error {
 	logger.Info("showRegisterPage handler called")
 
 	// Generate ALTCHA challenge
-	challenge, err := altcha.CreateChallenge(altcha.ChallengeOptions{
-		HMACKey:    controller.Config.AltchaConfig.HMACKey,
-		MaxNumber:  controller.Config.AltchaConfig.MaxNumber,
-		SaltLength: controller.Config.AltchaConfig.SaltLength,
-	})
+	challenge, err := controller.CaptchaVerifier.CreateChallenge()
 	if err != nil {
 		return c.Render(http.StatusInternalServerError, "register", RegisterPage{
 			Email:           "",
 			Error:           "Internal error",
 			AltchaChallenge: "",
 		})
-	} else {
-		// Convert challenge to JSON
-		challengeJSON, err := json.Marshal(challenge)
-		if err != nil {
-			logger.Error("Failed to marshal ALTCHA challenge to JSON", "error", err)
-			return c.Render(http.StatusInternalServerError, "register", RegisterPage{
-				Email:           "",
-				Error:           "Internal error",
-				AltchaChallenge: "",
-			})
-		}
-		logger.Info("showRegisterPage handler generated ALTCHA challenge", "challenge", string(challengeJSON))
-		return c.Render(http.StatusOK, "register", RegisterPage{
-			Email:           c.FormValue("email"),
-			Error:           "",
-			Success:         "",
-			AltchaChallenge: string(challengeJSON),
-		})
 	}
+
+	logger.Info("showRegisterPage handler generated ALTCHA challenge", "challenge", challenge)
+	return c.Render(http.StatusOK, "register", RegisterPage{
+		Email:           c.FormValue("email"),
+		Error:           "",
+		Success:         "",
+		AltchaChallenge: challenge,
+	})
 }
 
 func (controller *Controller) register(c echo.Context) error {
@@ -688,25 +715,13 @@ func (controller *Controller) register(c echo.Context) error {
 
 	logger.Info("register handler form values", "email", email, "password_length", len(password), "confirmPassword_length", len(confirmPassword), "altcha_solution", string(altchaSolution))
 
-	// Prepare ALTCHA configuration for all responses
-	// Generate ALTCHA challenge
-	challenge, err := altcha.CreateChallenge(altcha.ChallengeOptions{
-		HMACKey:    controller.Config.AltchaConfig.HMACKey,
-		MaxNumber:  controller.Config.AltchaConfig.MaxNumber,
-		SaltLength: controller.Config.AltchaConfig.SaltLength,
-	})
+	// Generate ALTCHA challenge for all responses
+	altchaChallenge, err := controller.CaptchaVerifier.CreateChallenge()
 	if err != nil {
 		logger.Error("Failed to create ALTCHA challenge", "error", err)
 		return controller.renderRegisterError(c, email, "Internal error", "", http.StatusInternalServerError)
 	}
-	// Convert challenge to JSON
-	challengeJSON, err := json.Marshal(challenge)
-	if err != nil {
-		logger.Error("Failed to marshal ALTCHA challenge to JSON", "error", err)
-		return controller.renderRegisterError(c, email, "Internal error", "", http.StatusInternalServerError)
-	}
-	altchaChallenge := string(challengeJSON)
-	logger.Info("register handler generated ALTCHA challenge", "challenge", string(challengeJSON))
+	logger.Info("register handler generated ALTCHA challenge", "challenge", altchaChallenge)
 
 	// Basic validation
 	if email == "" || password == "" || confirmPassword == "" {
@@ -730,8 +745,8 @@ func (controller *Controller) register(c echo.Context) error {
 		return controller.renderRegisterError(c, email, "Please complete the captcha", altchaChallenge, http.StatusBadRequest)
 	}
 
-	// Verify the ALTCHA solution (the library decodes the base64 encoded solution)
-	ok, err := altcha.VerifySolution(altchaSolution, controller.Config.AltchaConfig.HMACKey, true)
+	// Verify the ALTCHA solution
+	ok, err := controller.CaptchaVerifier.VerifySolution(altchaSolution)
 	if err != nil {
 		logger.Error("register handler ALTCHA verification error", "error", err)
 		return controller.renderRegisterError(c, email, "Captcha verification failed", altchaChallenge, http.StatusBadRequest)
