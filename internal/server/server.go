@@ -35,7 +35,7 @@ import (
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-//go:embed public/views/*.html public/styles/*.css
+//go:embed public/views/*.html public/styles/*.css public/scripts/*.js
 var staticFiles embed.FS
 
 const ContentTypeJson = "application/json;charset=UTF-8"
