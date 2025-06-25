@@ -54,6 +54,8 @@ var mymigrations = []migrations.Migration{
 		SequenceId: 3,
 		Sql: `
 		-- Add verification status to users table and create verification tokens table
+		-- Note: Existing users will be marked as unverified (0) by default
+		-- This will be corrected in migration sequence 6 to prevent cleanup of existing users
 		ALTER TABLE users ADD COLUMN is_verified INTEGER NOT NULL DEFAULT 0;
 
 		CREATE TABLE IF NOT EXISTS verification_tokens (
@@ -149,6 +151,15 @@ var mymigrations = []migrations.Migration{
 		CREATE INDEX idx_email_tracking_first_attempt ON email_tracking(first_attempt);
 		-- Create index for cleanup of expired blocks
 		CREATE INDEX idx_email_tracking_blocked_at ON email_tracking(blocked_at);
+		`,
+	},
+	{
+		SequenceId: 6,
+		Sql: `
+		-- Mark all existing users as verified to prevent them from being cleaned up
+		-- This migration ensures that users created before the verification system
+		-- are not accidentally deleted by the cleanup job
+		UPDATE users SET is_verified = 1 WHERE is_verified = 0;
 		`,
 	},
 }
