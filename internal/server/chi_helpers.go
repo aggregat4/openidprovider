@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -18,7 +19,7 @@ func sendOauthAccessTokenErrorChi(w http.ResponseWriter, errorCode string) {
 
 // sendInternalErrorChi sends internal errors for Chi handlers
 func sendInternalErrorChi(w http.ResponseWriter, r *http.Request, originalError error, fullRedirectUri *url.URL, state string) {
-	logger.Error("Internal error", "error", originalError)
+	slog.Error("Internal error", "error", originalError)
 	sendOauthErrorChi(w, r, fullRedirectUri, "server_error", "Internal server error", state)
 }
 
@@ -50,7 +51,7 @@ func jsonResponse(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", ContentTypeJson)
 	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		logger.Error("Failed to encode JSON response", "error", err)
+		slog.Error("Failed to encode JSON response", "error", err)
 	}
 }
 
