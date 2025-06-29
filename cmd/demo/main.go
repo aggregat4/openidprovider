@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -161,21 +162,21 @@ var (
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 
-	log.Printf("Starting demo server...")
+	slog.Info("Starting demo server")
 
 	configFile := flag.String("config", "demo-config.json", "Path to configuration file")
 	flag.Parse()
 
 	// Read configuration
 	config := readConfig(*configFile)
-	log.Printf("Loaded configuration from %s", *configFile)
+	slog.Info("Loaded configuration from ", "configFile", *configFile)
 
 	// Get OpenID Provider configuration
 	providerConfig, err := getOpenIDProviderConfig(config.OpenIDProvider)
 	if err != nil {
 		log.Fatalf("Error getting OpenID Provider configuration: %v", err)
 	}
-	log.Printf("Successfully retrieved OpenID Provider configuration from %s", config.OpenIDProvider)
+	slog.Info("Successfully retrieved OpenID Provider configuration from ", "provider", config.OpenIDProvider)
 
 	// Routes
 	http.HandleFunc("/", handlePublic)
@@ -189,35 +190,35 @@ func main() {
 	http.HandleFunc("/logout", handleLogout)
 	http.HandleFunc("/emails", handleEmails)
 
-	log.Printf("Starting demo server on port %d", config.Port)
+	slog.Info("Starting demo server on port ", "port", config.Port)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func getOpenIDProviderConfig(providerURL string) (*OpenIDProviderConfig, error) {
 	// Construct the discovery URL
 	discoveryURL := strings.TrimRight(providerURL, "/") + "/.well-known/openid-configuration"
-	log.Printf("Fetching OpenID Provider configuration from: %s", discoveryURL)
+	slog.Info("Fetching OpenID Provider configuration from: ", "discoveryURL", discoveryURL)
 
 	// Fetch the configuration
 	resp, err := http.Get(discoveryURL)
 	if err != nil {
-		log.Printf("Error fetching provider configuration: %v", err)
+		slog.Error("Error fetching provider configuration: ", "error", err)
 		return nil, fmt.Errorf("error fetching provider configuration: %v", err)
 	}
 	defer resp.Body.Close()
 
-	log.Printf("Provider configuration response status: %d", resp.StatusCode)
+	slog.Info("Provider configuration response status: ", "status", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("provider returned status code %d", resp.StatusCode)
 	}
 
 	var config OpenIDProviderConfig
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
-		log.Printf("Error parsing provider configuration: %v", err)
+		slog.Error("Error parsing provider configuration: ", "error", err)
 		return nil, fmt.Errorf("error parsing provider configuration: %v", err)
 	}
 
-	log.Printf("Successfully parsed provider configuration")
+	slog.Info("Successfully parsed provider configuration")
 	return &config, nil
 }
 
@@ -236,17 +237,17 @@ func readConfig(path string) Config {
 }
 
 func handlePublic(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Handling public request: %s %s", r.Method, r.URL.Path)
+	slog.Info("Handling public request: ", "method", r.Method, "path", r.URL.Path)
 	publicTemplate.Execute(w, nil)
 }
 
 func handleProtected(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Handling protected request: %s %s", r.Method, r.URL.Path)
+	slog.Info("Handling protected request: ", "method", r.Method, "path", r.URL.Path)
 
 	// Check if user is authenticated
 	session, err := r.Cookie("session")
 	if err != nil || session.Value == "" {
-		log.Printf("No valid session found, redirecting to login")
+		slog.Error("No valid session found, redirecting to login")
 		http.Redirect(w, r, "/auth/login", http.StatusTemporaryRedirect)
 		return
 	}
@@ -254,7 +255,7 @@ func handleProtected(w http.ResponseWriter, r *http.Request) {
 	// Parse the ID token
 	claims, err := parseToken(session.Value)
 	if err != nil {
-		log.Printf("Error parsing token: %v", err)
+		slog.Error("Error parsing token: ", "error", err)
 		http.Error(w, "Invalid session", http.StatusUnauthorized)
 		return
 	}
@@ -262,7 +263,7 @@ func handleProtected(w http.ResponseWriter, r *http.Request) {
 	// Format claims as pretty JSON
 	claimsJSON, err := json.MarshalIndent(claims, "", "  ")
 	if err != nil {
-		log.Printf("Error formatting claims: %v", err)
+		slog.Error("Error formatting claims: ", "error", err)
 		http.Error(w, "Error formatting claims", http.StatusInternalServerError)
 		return
 	}
@@ -279,12 +280,12 @@ func handleProtected(w http.ResponseWriter, r *http.Request) {
 		ClaimsJSON: string(claimsJSON),
 	}
 
-	log.Printf("Rendering protected page for user: %s", data.Email)
+	slog.Info("Rendering protected page for user: ", "email", data.Email)
 	protectedTemplate.Execute(w, data)
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request, config Config, providerConfig *OpenIDProviderConfig) {
-	log.Printf("Handling login request: %s %s", r.Method, r.URL.Path)
+	slog.Info("Handling login request: ", "method", r.Method, "path", r.URL.Path)
 
 	// Construct the authorization URL
 	params := url.Values{}
@@ -294,23 +295,23 @@ func handleLogin(w http.ResponseWriter, r *http.Request, config Config, provider
 	params.Add("scope", "openid email profile")
 
 	authURL := providerConfig.AuthorizationEndpoint + "?" + params.Encode()
-	log.Printf("Redirecting to authorization endpoint: %s", authURL)
+	slog.Info("Redirecting to authorization endpoint: ", "authURL", authURL)
 
 	// Redirect to the OpenID Provider
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
 func handleCallback(w http.ResponseWriter, r *http.Request, config Config, providerConfig *OpenIDProviderConfig) {
-	log.Printf("Handling callback request: %s %s", r.Method, r.URL.Path)
+	slog.Info("Handling callback request: ", "method", r.Method, "path", r.URL.Path)
 
 	// Handle OAuth callback
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		log.Printf("No authorization code provided in callback")
+		slog.Error("No authorization code provided in callback")
 		http.Error(w, "No code provided", http.StatusBadRequest)
 		return
 	}
-	log.Printf("Received authorization code")
+	slog.Info("Received authorization code")
 
 	// Exchange code for token
 	data := url.Values{}
@@ -321,7 +322,7 @@ func handleCallback(w http.ResponseWriter, r *http.Request, config Config, provi
 	// Create request with Basic Auth
 	req, err := http.NewRequest("POST", providerConfig.TokenEndpoint, strings.NewReader(data.Encode()))
 	if err != nil {
-		log.Printf("Error creating token request: %v", err)
+		slog.Error("Error creating token request: ", "error", err)
 		http.Error(w, "Error creating request", http.StatusInternalServerError)
 		return
 	}
@@ -331,30 +332,30 @@ func handleCallback(w http.ResponseWriter, r *http.Request, config Config, provi
 	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	log.Printf("Making token request to: %s", providerConfig.TokenEndpoint)
+	slog.Info("Making token request to: ", "tokenEndpoint", providerConfig.TokenEndpoint)
 
 	// Make the request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Error making token request: %v", err)
+		slog.Error("Error making token request: ", "error", err)
 		http.Error(w, "Error exchanging code for token", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
 
-	log.Printf("Token endpoint response status: %d", resp.StatusCode)
+	slog.Info("Token endpoint response status: ", "status", resp.StatusCode)
 
 	var tokenResponse struct {
 		IDToken string `json:"id_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResponse); err != nil {
-		log.Printf("Error parsing token response: %v", err)
+		slog.Error("Error parsing token response: ", "error", err)
 		http.Error(w, "Error parsing token response", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Successfully received ID token")
+	slog.Info("Successfully received ID token")
 
 	// Store the ID token in a session cookie
 	http.SetCookie(w, &http.Cookie{
@@ -366,12 +367,12 @@ func handleCallback(w http.ResponseWriter, r *http.Request, config Config, provi
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	log.Printf("Setting session cookie and redirecting to protected page")
+	slog.Info("Setting session cookie and redirecting to protected page")
 	http.Redirect(w, r, "/protected", http.StatusTemporaryRedirect)
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Handling logout request: %s %s", r.Method, r.URL.Path)
+	slog.Info("Handling logout request: ", "method", r.Method, "path", r.URL.Path)
 
 	// Clear session cookie
 	http.SetCookie(w, &http.Cookie{
@@ -381,34 +382,34 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 		MaxAge: -1,
 	})
 
-	log.Printf("Cleared session cookie and redirecting to home page")
+	slog.Info("Cleared session cookie and redirecting to home page")
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }
 
 func parseToken(token string) (map[string]interface{}, error) {
-	log.Printf("Parsing ID token")
+	slog.Info("Parsing ID token")
 
 	// Split the token into parts
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		log.Printf("Invalid token format: expected 3 parts, got %d", len(parts))
+		slog.Error("Invalid token format: expected 3 parts, got ", "parts", len(parts))
 		return nil, fmt.Errorf("invalid token format")
 	}
 
 	// Decode the claims (second part of the JWT)
 	claimsJSON, err := base64Decode(parts[1])
 	if err != nil {
-		log.Printf("Error decoding token: %v", err)
+		slog.Error("Error decoding token: ", "error", err)
 		return nil, fmt.Errorf("error decoding token: %v", err)
 	}
 
 	var claims map[string]interface{}
 	if err := json.Unmarshal(claimsJSON, &claims); err != nil {
-		log.Printf("Error parsing claims: %v", err)
+		slog.Error("Error parsing claims: ", "error", err)
 		return nil, fmt.Errorf("error parsing claims: %v", err)
 	}
 
-	log.Printf("Successfully parsed token claims")
+	slog.Info("Successfully parsed token claims")
 	return claims, nil
 }
 
@@ -429,7 +430,7 @@ func base64Decode(s string) ([]byte, error) {
 }
 
 func handleEmails(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Handling emails request: %s %s", r.Method, r.URL.Path)
+	slog.Info("Handling emails request: ", "method", r.Method, "path", r.URL.Path)
 
 	switch r.Method {
 	case http.MethodGet:
@@ -449,7 +450,7 @@ func handleEmails(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var email Email
 		if err := json.NewDecoder(r.Body).Decode(&email); err != nil {
-			log.Printf("Error decoding email: %v", err)
+			slog.Error("Error decoding email: ", "error", err)
 			http.Error(w, "Invalid email data", http.StatusBadRequest)
 			return
 		}

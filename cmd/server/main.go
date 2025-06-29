@@ -9,9 +9,10 @@ import (
 	"log"
 	"time"
 
+	"log/slog"
+
 	"github.com/aggregat4/go-baselib/crypto"
 	"github.com/aggregat4/go-baselib/lang"
-
 	"github.com/kirsle/configdir"
 	"github.com/knadh/koanf/parsers/json"
 	"github.com/knadh/koanf/providers/file"
@@ -21,6 +22,8 @@ import (
 )
 
 func main() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+
 	var configFileLocation string
 	flag.StringVar(&configFileLocation, "config", "", "The location of the configuration file if you do not want to default to the standard location")
 	flag.Parse()
@@ -38,10 +41,10 @@ func main() {
 	// Initialize email sender
 	var emailSender email.EmailSender
 	if config.MockEmailDemoServerURL != "" {
-		log.Printf("Using mock email sender with demo server URL: %s", config.MockEmailDemoServerURL)
+		slog.Info("Using mock email sender with demo server URL " + config.MockEmailDemoServerURL)
 		emailSender = email.NewMockEmailSender(config.MockEmailDemoServerURL)
 	} else {
-		log.Printf("Using Sendgrid email sender")
+		slog.Info("Using Sendgrid email sender")
 		emailSender = email.NewEmailService(config.SendgridConfig, &store)
 	}
 

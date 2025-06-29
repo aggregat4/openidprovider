@@ -5,6 +5,7 @@ import (
 	"aggregat4/openidprovider/internal/repository"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -71,13 +72,13 @@ type LoginPage struct {
 
 // StatusHandler handles the status endpoint
 func (controller *ChiController) StatusHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Status endpoint")
+	slog.Info("Status endpoint")
 	stringResponse(w, http.StatusOK, "OK")
 }
 
 // JwksHandler handles the JWKS endpoint
 func (controller *ChiController) JwksHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("JWKS endpoint")
+	slog.Info("JWKS endpoint")
 
 	// Create JWKS document
 	jwks := gojose.JSONWebKeySet{
@@ -93,7 +94,7 @@ func (controller *ChiController) JwksHandler(w http.ResponseWriter, r *http.Requ
 
 	jwksBytes, err := json.MarshalIndent(jwks, "", "  ")
 	if err != nil {
-		logger.Error("Failed to marshal JWKS", "error", err)
+		slog.Error("Failed to marshal JWKS", "error", err)
 		stringResponse(w, http.StatusInternalServerError, "Internal error")
 		return
 	}
@@ -105,7 +106,7 @@ func (controller *ChiController) JwksHandler(w http.ResponseWriter, r *http.Requ
 
 // OpenIdConfigurationHandler handles the OpenID configuration endpoint
 func (controller *ChiController) OpenIdConfigurationHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("OpenID Configuration endpoint")
+	slog.Info("OpenID Configuration endpoint")
 
 	// Get all scopes from the database
 	scopes, err := controller.Store.ListScopes()
@@ -119,7 +120,7 @@ func (controller *ChiController) OpenIdConfigurationHandler(w http.ResponseWrite
 	for _, scope := range scopes {
 		scopeClaims, err := controller.Store.ListScopeClaims(scope.Name)
 		if err != nil {
-			logger.Error("Failed to get scope claims", "error", err)
+			slog.Error("Failed to get scope claims", "error", err)
 			stringResponse(w, http.StatusInternalServerError, "Internal error")
 			return
 		}
@@ -162,7 +163,7 @@ func (controller *ChiController) OpenIdConfigurationHandler(w http.ResponseWrite
 // https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 // Error handling as per https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
 func (controller *ChiController) TokenHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Token endpoint")
+	slog.Info("Token endpoint")
 
 	// Get client_id from basic auth context (set by middleware)
 	clientId := r.Context().Value(clientIDContextKey).(string)
@@ -260,7 +261,7 @@ func (controller *ChiController) TokenHandler(w http.ResponseWriter, r *http.Req
 // AuthorizeHandler handles OAuth authorization requests
 // No support for "nonce", "display", "prompt", "max_age", "ui_locales", "id_token_hint", "login_hint", "acr_values" yet
 func (controller *ChiController) AuthorizeHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Authorize endpoint")
+	slog.Info("Authorize endpoint")
 
 	authReqScopes := strings.Split(getParamChi(r, "scope"), " ")
 	authReqResponseType := getParamChi(r, "response_type")
@@ -331,7 +332,7 @@ func (controller *ChiController) AuthorizeHandler(w http.ResponseWriter, r *http
 // But since this treats a potential malicious client as a real client, this seems unwise? Or is it better
 // to return an OAuth error so the implementor of a buggy client can see what's wrong?
 func (controller *ChiController) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Login endpoint")
+	slog.Info("Login endpoint")
 
 	clientId := getFormValueChi(r, "clientid")
 	redirectUri := getFormValueChi(r, "redirecturi")
@@ -361,7 +362,7 @@ func (controller *ChiController) LoginHandler(w http.ResponseWriter, r *http.Req
 
 // handleRegularLoginChi handles regular web login
 func (controller *ChiController) handleRegularLoginChi(w http.ResponseWriter, r *http.Request, username, password string) {
-	logger.Info("handleRegularLogin called", "username", username)
+	slog.Info("handleRegularLogin called", "username", username)
 	// Basic validation
 	if username == "" || password == "" {
 		stringResponse(w, http.StatusBadRequest, "Missing credentials")
@@ -371,7 +372,7 @@ func (controller *ChiController) handleRegularLoginChi(w http.ResponseWriter, r 
 	// Validate credentials
 	valid, err := controller.validateCredentials(username, password)
 	if err != nil {
-		logger.Error("Error validating credentials", "error", err)
+		slog.Error("Error validating credentials", "error", err)
 		stringResponse(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
@@ -386,7 +387,7 @@ func (controller *ChiController) handleRegularLoginChi(w http.ResponseWriter, r 
 
 // handleOAuthLoginChi handles OAuth login flow
 func (controller *ChiController) handleOAuthLoginChi(w http.ResponseWriter, r *http.Request, clientId, redirectUri, state, scopes, username, password string) {
-	logger.Info("handleOAuthLogin called", "clientId", clientId, "username", username)
+	slog.Info("handleOAuthLogin called", "clientId", clientId, "username", username)
 	// Create redirect URL for error responses
 	redirectUrl, err := url.Parse(redirectUri)
 	if err != nil {
@@ -403,7 +404,7 @@ func (controller *ChiController) handleOAuthLoginChi(w http.ResponseWriter, r *h
 	// Validate credentials
 	valid, err := controller.validateCredentials(username, password)
 	if err != nil {
-		logger.Error("Error validating credentials", "error", err)
+		slog.Error("Error validating credentials", "error", err)
 		sendInternalErrorChi(w, r, err, redirectUrl, state)
 		return
 	}
@@ -432,7 +433,7 @@ func (controller *ChiController) handleOAuthLoginChi(w http.ResponseWriter, r *h
 	}
 
 	if user == nil {
-		logger.Debug("User not found with username")
+		slog.Debug("User not found with username")
 		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
 		sendOauthErrorChi(w, r, redirectUrl, "access_denied", "Invalid username or password", state)
 		return
@@ -459,13 +460,13 @@ func (controller *ChiController) handleOAuthLoginChi(w http.ResponseWriter, r *h
 	query.Add("code", code)
 	query.Add("state", state)
 	redirectUrl.RawQuery = query.Encode()
-	logger.Info("login request password ok. redirecting")
+	slog.Info("login request password ok. redirecting")
 	redirectResponse(w, r, http.StatusFound, redirectUrl.String())
 }
 
 // showLoginPageChi shows the login page
 func (controller *ChiController) showLoginPageChi(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Show login page")
+	slog.Info("Show login page")
 
 	clientId := getParamChi(r, "client_id")
 	redirectUri := getParamChi(r, "redirect_uri")
@@ -484,11 +485,11 @@ func (controller *ChiController) showLoginPageChi(w http.ResponseWriter, r *http
 
 // ShowRegisterPageHandler handles the register page display
 func (controller *ChiController) ShowRegisterPageHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Show register page")
+	slog.Info("Show register page")
 
 	altchaChallenge, err := controller.CaptchaVerifier.CreateChallenge()
 	if err != nil {
-		logger.Error("Failed to create ALTCHA challenge", "error", err)
+		slog.Error("Failed to create ALTCHA challenge", "error", err)
 		altchaChallenge = ""
 	}
 
@@ -504,46 +505,46 @@ func (controller *ChiController) ShowRegisterPageHandler(w http.ResponseWriter, 
 
 // RegisterHandler handles user registration
 func (controller *ChiController) RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Register endpoint")
+	slog.Info("Register endpoint")
 
 	email := getFormValueChi(r, "email")
 	password := getFormValueChi(r, "password")
 	confirmPassword := getFormValueChi(r, "confirmPassword")
 	altchaSolution := getFormValueChi(r, "altcha")
 
-	logger.Info("register handler form values", "email", email, "password_length", len(password), "confirmPassword_length", len(confirmPassword), "altcha_solution", string(altchaSolution))
+	slog.Info("register handler form values", "email", email, "password_length", len(password), "confirmPassword_length", len(confirmPassword), "altcha_solution", string(altchaSolution))
 
 	// Generate ALTCHA challenge for all responses
 	altchaChallenge, err := controller.CaptchaVerifier.CreateChallenge()
 	if err != nil {
-		logger.Error("Failed to create ALTCHA challenge", "error", err)
+		slog.Error("Failed to create ALTCHA challenge", "error", err)
 		controller.renderRegisterErrorChi(w, r, email, "Internal error", "", http.StatusInternalServerError)
 		return
 	}
-	logger.Info("register handler generated ALTCHA challenge", "challenge", altchaChallenge)
+	slog.Info("register handler generated ALTCHA challenge", "challenge", altchaChallenge)
 
 	// Basic validation
 	if email == "" || password == "" || confirmPassword == "" {
-		logger.Info("register handler validation failed - empty fields")
+		slog.Info("register handler validation failed - empty fields")
 		controller.renderRegisterErrorChi(w, r, email, "All fields are required", altchaChallenge, http.StatusBadRequest)
 		return
 	}
 
 	if password != confirmPassword {
-		logger.Info("register handler validation failed - passwords don't match")
+		slog.Info("register handler validation failed - passwords don't match")
 		controller.renderRegisterErrorChi(w, r, email, "Passwords do not match", altchaChallenge, http.StatusBadRequest)
 		return
 	}
 
 	// verify that the password is at least 8 characters long
 	if len(password) < 8 {
-		logger.Info("register handler validation failed - password too short")
+		slog.Info("register handler validation failed - password too short")
 		controller.renderRegisterErrorChi(w, r, email, "Password must be at least 8 characters long", altchaChallenge, http.StatusBadRequest)
 		return
 	}
 
 	if altchaSolution == "" {
-		logger.Info("register handler ALTCHA solution missing")
+		slog.Info("register handler ALTCHA solution missing")
 		controller.renderRegisterErrorChi(w, r, email, "Please complete the captcha", altchaChallenge, http.StatusBadRequest)
 		return
 	}
@@ -551,48 +552,48 @@ func (controller *ChiController) RegisterHandler(w http.ResponseWriter, r *http.
 	// Verify the ALTCHA solution
 	ok, err := controller.CaptchaVerifier.VerifySolution(altchaSolution)
 	if err != nil {
-		logger.Error("register handler ALTCHA verification error", "error", err)
+		slog.Error("register handler ALTCHA verification error", "error", err)
 		controller.renderRegisterErrorChi(w, r, email, "Captcha verification failed", altchaChallenge, http.StatusBadRequest)
 		return
 	}
 	if !ok {
-		logger.Info("register handler ALTCHA verification failed")
+		slog.Info("register handler ALTCHA verification failed")
 		controller.renderRegisterErrorChi(w, r, email, "Captcha verification failed", altchaChallenge, http.StatusBadRequest)
 		return
 	}
-	logger.Info("register handler ALTCHA verification successful")
+	slog.Info("register handler ALTCHA verification successful")
 
 	// Check if user already exists
-	logger.Info("register handler checking if user exists", "email", email)
+	slog.Info("register handler checking if user exists", "email", email)
 	existingUser, err := controller.Store.FindUser(email)
 	if err != nil {
-		logger.Error("register handler error finding user", "error", err)
+		slog.Error("register handler error finding user", "error", err)
 		controller.renderRegisterErrorChi(w, r, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
 	if existingUser != nil {
-		logger.Info("register handler user exists", "email", email, "verified", existingUser.Verified)
+		slog.Info("register handler user exists", "email", email, "verified", existingUser.Verified)
 
 		// If user is already verified, redirect to login
 		if existingUser.Verified {
-			logger.Info("register handler redirecting verified user to login")
+			slog.Info("register handler redirecting verified user to login")
 			redirectResponse(w, r, http.StatusFound, "/login")
 			return
 		}
 
 		// If user exists but is not verified, check if we should resend verification email
-		logger.Info("register handler checking if should resend verification for unverified user")
+		slog.Info("register handler checking if should resend verification for unverified user")
 		lastAttempt, err := controller.Store.GetLastRegistrationAttempt(email)
 		if err != nil {
-			logger.Error("register handler error getting last registration attempt", "error", err)
+			slog.Error("register handler error getting last registration attempt", "error", err)
 			controller.renderRegisterErrorChi(w, r, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
 		// If last attempt was less than 5 minutes ago, show debounce message
 		if time.Now().Unix()-lastAttempt < 300 {
-			logger.Info("register handler email debouncing", "last_attempt", lastAttempt, "time_since", time.Now().Unix()-lastAttempt)
+			slog.Info("register handler email debouncing", "last_attempt", lastAttempt, "time_since", time.Now().Unix()-lastAttempt)
 			controller.renderRegisterErrorChi(w, r, email, "Please wait a few minutes before trying again", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
@@ -600,14 +601,14 @@ func (controller *ChiController) RegisterHandler(w http.ResponseWriter, r *http.
 		// Check for too many failed verification attempts
 		failedAttempts, err := controller.Store.GetFailedVerificationAttempts(email)
 		if err != nil {
-			logger.Error("register handler error getting failed verification attempts", "error", err)
+			slog.Error("register handler error getting failed verification attempts", "error", err)
 			controller.renderRegisterErrorChi(w, r, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
 		// Block after 5 failed attempts
 		if failedAttempts >= 5 {
-			logger.Info("register handler too many failed verification attempts", "failed_attempts", failedAttempts)
+			slog.Info("register handler too many failed verification attempts", "failed_attempts", failedAttempts)
 			controller.renderRegisterErrorChi(w, r, email, "Too many failed verification attempts. Please try again later.", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
@@ -615,64 +616,64 @@ func (controller *ChiController) RegisterHandler(w http.ResponseWriter, r *http.
 		// Check for too many active tokens
 		activeTokens, err := controller.Store.GetActiveVerificationTokensCount(email)
 		if err != nil {
-			logger.Error("register handler error getting active tokens count", "error", err)
+			slog.Error("register handler error getting active tokens count", "error", err)
 			controller.renderRegisterErrorChi(w, r, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
 		// Maximum 3 active tokens per email
 		if activeTokens >= 3 {
-			logger.Info("register handler too many active tokens", "active_tokens", activeTokens)
+			slog.Info("register handler too many active tokens", "active_tokens", activeTokens)
 			controller.renderRegisterErrorChi(w, r, email, "Too many active verification links. Please check your email or try again later.", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
 
 		// OK, we don't need to debounce the user, we can resend the verification email
-		logger.Info("register handler resending verification email for unverified user")
+		slog.Info("register handler resending verification email for unverified user")
 		err = controller.sendVerificationEmail(email)
 		if err != nil {
-			logger.Error("register handler error sending verification email", "error", err)
+			slog.Error("register handler error sending verification email", "error", err)
 			controller.renderRegisterErrorChi(w, r, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
-		logger.Info("register handler verification email resent successfully")
+		slog.Info("register handler verification email resent successfully")
 		controller.renderRegisterSuccessChi(w, r, email, "Verification email sent. Please check your email to verify your account.", altchaChallenge)
 		return
 	}
 
 	// Create new user
-	logger.Info("register handler creating new user", "email", email)
+	slog.Info("register handler creating new user", "email", email)
 	hashedPassword, err := crypto.HashPassword(password)
 	if err != nil {
-		logger.Error("register handler error hashing password", "error", err)
+		slog.Error("register handler error hashing password", "error", err)
 		controller.renderRegisterErrorChi(w, r, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
 	err = controller.Store.CreateUser(email, hashedPassword)
 	if err != nil {
-		logger.Error("register handler error creating user", "error", err)
+		slog.Error("register handler error creating user", "error", err)
 		controller.renderRegisterErrorChi(w, r, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
 	// Send verification email
-	logger.Info("register handler sending verification email for new user")
+	slog.Info("register handler sending verification email for new user")
 	err = controller.sendVerificationEmail(email)
 	if err != nil {
-		logger.Error("register handler error sending verification email", "error", err)
+		slog.Error("register handler error sending verification email", "error", err)
 		controller.renderRegisterErrorChi(w, r, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
-	logger.Info("register handler registration successful")
+	slog.Info("register handler registration successful")
 	controller.renderRegisterSuccessChi(w, r, email, "Registration successful! Please check your email to verify your account.", altchaChallenge)
 }
 
 // ShowVerificationPageHandler handles the verification page display
 func (controller *ChiController) ShowVerificationPageHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Show verification page")
+	slog.Info("Show verification page")
 
 	code := getParamChi(r, "code")
 	if code == "" {
@@ -689,31 +690,31 @@ func (controller *ChiController) ShowVerificationPageHandler(w http.ResponseWrit
 
 // VerifyHandler handles email verification
 func (controller *ChiController) VerifyHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Verify endpoint")
+	slog.Info("Verify endpoint")
 
 	code := getFormValueChi(r, "code")
 	// basic validation
 	if code == "" {
-		logger.Info("verify handler validation failed - code is empty")
+		slog.Info("verify handler validation failed - code is empty")
 		page := VerifyPage{
 			Error: "Verification code is required",
 		}
 		controller.renderTemplate(w, "verify.html", page, http.StatusBadRequest)
 		return
 	}
-	logger.Info("verify handler received code", "code", code)
+	slog.Info("verify handler received code", "code", code)
 
 	controller.verifyWithCodeChi(w, r, code)
 }
 
 // verifyWithCodeChi handles verification with a specific code
 func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *http.Request, code string) {
-	logger.Info("verifyWithCode handler called", "code", code)
+	slog.Info("verifyWithCode handler called", "code", code)
 
 	// Find and validate token
 	verificationToken, err := controller.Store.FindVerificationToken(code)
 	if err != nil {
-		logger.Error("verify handler error finding token", "error", err)
+		slog.Error("verify handler error finding token", "error", err)
 		page := VerifyPage{
 			Error: "Internal error",
 		}
@@ -722,7 +723,7 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 	}
 
 	if verificationToken == nil {
-		logger.Info("verify handler token not found", "code", code)
+		slog.Info("verify handler token not found", "code", code)
 		page := VerifyPage{
 			Error: "Invalid or expired verification code",
 		}
@@ -732,7 +733,7 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 
 	// Check if token is expired
 	if time.Now().Unix() > verificationToken.Expires {
-		logger.Info("verify handler token expired", "code", code, "expires_at", verificationToken.Expires)
+		slog.Info("verify handler token expired", "code", code, "expires_at", verificationToken.Expires)
 		err := controller.Store.DeleteVerificationToken(code)
 		if err != nil {
 			sendInternalErrorChi(w, r, err, nil, "Internal error")
@@ -748,7 +749,7 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 	// Mark user as verified
 	err = controller.Store.VerifyUser(verificationToken.Email)
 	if err != nil {
-		logger.Error("verify handler error verifying user", "error", err)
+		slog.Error("verify handler error verifying user", "error", err)
 		page := VerifyPage{
 			Error: "Internal error",
 		}
@@ -759,12 +760,12 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 	// Delete the verification token
 	err = controller.Store.DeleteVerificationToken(code)
 	if err != nil {
-		logger.Error("verify handler error deleting token", "error", err)
+		slog.Error("verify handler error deleting token", "error", err)
 		sendInternalErrorChi(w, r, err, nil, "Internal error")
 		return
 	}
 
-	logger.Info("verify handler verification successful", "email", verificationToken.Email)
+	slog.Info("verify handler verification successful", "email", verificationToken.Email)
 	page := VerifyPage{
 		Success: "Verification successful",
 	}
@@ -773,7 +774,7 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 
 // ShowForgotPasswordPageHandler handles the forgot password page display
 func (controller *ChiController) ShowForgotPasswordPageHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Show forgot password page")
+	slog.Info("Show forgot password page")
 
 	page := ForgotPasswordPage{
 		Email:   getParamChi(r, "email"),
@@ -786,7 +787,7 @@ func (controller *ChiController) ShowForgotPasswordPageHandler(w http.ResponseWr
 
 // ForgotPasswordHandler handles forgot password requests
 func (controller *ChiController) ForgotPasswordHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Forgot password endpoint")
+	slog.Info("Forgot password endpoint")
 
 	email := getFormValueChi(r, "email")
 
@@ -837,7 +838,7 @@ func (controller *ChiController) ForgotPasswordHandler(w http.ResponseWriter, r 
 	resetLink := fmt.Sprintf("%s/reset-password?token=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendPasswordResetEmail(email, resetLink)
 	if err != nil {
-		logger.Error("Failed to send password reset email", "error", err)
+		slog.Error("Failed to send password reset email", "error", err)
 		// Continue with the flow even if email sending fails
 	}
 
@@ -850,7 +851,7 @@ func (controller *ChiController) ForgotPasswordHandler(w http.ResponseWriter, r 
 
 // ShowResetPasswordPageHandler handles the reset password page display
 func (controller *ChiController) ShowResetPasswordPageHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Show reset password page")
+	slog.Info("Show reset password page")
 
 	token := getParamChi(r, "token")
 
@@ -865,7 +866,7 @@ func (controller *ChiController) ShowResetPasswordPageHandler(w http.ResponseWri
 
 // ResetPasswordHandler handles password reset
 func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Reset password endpoint")
+	slog.Info("Reset password endpoint")
 
 	token := getFormValueChi(r, "token")
 	password := getFormValueChi(r, "password")
@@ -962,13 +963,13 @@ func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *
 
 // ShowDeleteAccountPageHandler handles the delete account page display
 func (controller *ChiController) ShowDeleteAccountPageHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Show delete account page")
+	slog.Info("Show delete account page")
 	controller.renderTemplate(w, "delete-account.html", DeleteAccountPage{}, http.StatusOK)
 }
 
 // DeleteAccountHandler handles account deletion requests
 func (controller *ChiController) DeleteAccountHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Delete account endpoint")
+	slog.Info("Delete account endpoint")
 
 	email := getFormValueChi(r, "email")
 	if email == "" {
@@ -1021,7 +1022,7 @@ func (controller *ChiController) DeleteAccountHandler(w http.ResponseWriter, r *
 	deleteLink := fmt.Sprintf("%s/verify-delete?token=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendDeleteAccountEmail(email, deleteLink)
 	if err != nil {
-		logger.Error("Failed to send delete account email", "error", err)
+		slog.Error("Failed to send delete account email", "error", err)
 	}
 
 	page := DeleteAccountPage{
@@ -1033,7 +1034,7 @@ func (controller *ChiController) DeleteAccountHandler(w http.ResponseWriter, r *
 // TODO: this implementation does not seem right, we just always show the page with an error??
 // ShowVerifyDeletePageHandler handles the verify delete page display
 func (controller *ChiController) ShowVerifyDeletePageHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Show verify delete page")
+	slog.Info("Show verify delete page")
 
 	token := getParamChi(r, "token")
 
@@ -1048,7 +1049,7 @@ func (controller *ChiController) ShowVerifyDeletePageHandler(w http.ResponseWrit
 
 // VerifyDeleteHandler handles delete verification
 func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Verify delete endpoint")
+	slog.Info("Verify delete endpoint")
 
 	token := getFormValueChi(r, "code")
 	if token == "" {
@@ -1079,7 +1080,7 @@ func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *h
 
 	// Check if token is expired
 	if time.Now().Unix() > verificationToken.Expires {
-		logger.Info("verify delete handler token expired", "token", token, "expires_at", verificationToken.Expires)
+		slog.Info("verify delete handler token expired", "token", token, "expires_at", verificationToken.Expires)
 		page := VerifyDeletePage{
 			Error: "Verification code has expired",
 		}
@@ -1100,11 +1101,11 @@ func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *h
 	// Delete the verification token
 	err = controller.Store.DeleteVerificationToken(token)
 	if err != nil {
-		logger.Error("verify delete handler error deleting token", "error", err)
+		slog.Error("verify delete handler error deleting token", "error", err)
 		// Don't fail the deletion if we can't delete the token
 	}
 
-	logger.Info("verify delete handler account deletion successful", "email", verificationToken.Email)
+	slog.Info("verify delete handler account deletion successful", "email", verificationToken.Email)
 	page := VerifyDeletePage{
 		Success: "Your account has been deleted successfully.",
 	}
@@ -1113,7 +1114,7 @@ func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *h
 
 // ResendDeleteVerificationHandler handles resending delete verification
 func (controller *ChiController) ResendDeleteVerificationHandler(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Resend delete verification endpoint")
+	slog.Info("Resend delete verification endpoint")
 
 	email := getParamChi(r, "email")
 	if email == "" {
@@ -1153,7 +1154,7 @@ func (controller *ChiController) ResendDeleteVerificationHandler(w http.Response
 	deleteLink := fmt.Sprintf("%s/verify-delete?token=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendDeleteAccountEmail(email, deleteLink)
 	if err != nil {
-		logger.Error("Failed to send delete account email", "error", err)
+		slog.Error("Failed to send delete account email", "error", err)
 	}
 
 	redirectResponse(w, r, http.StatusFound, "/delete-account")

@@ -41,12 +41,18 @@ type Controller struct {
 	CaptchaVerifier CaptchaVerifier
 }
 
-var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+// var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 const ContentTypeJson = "application/json;charset=UTF-8"
 
-//go:embed public/views/*.html public/styles/*.css public/scripts/*.js
-var staticFiles embed.FS
+//go:embed views/*.html
+var viewFiles embed.FS
+
+//go:embed public/styles/*.css
+var styles embed.FS
+
+//go:embed public/scripts/*.js
+var scripts embed.FS
 
 // ChiController wraps the controller with Chi-specific functionality
 type ChiController struct {
@@ -74,9 +80,9 @@ func RunChiServer(controller Controller) {
 		WriteTimeout: time.Duration(controller.Config.ServerWriteTimeoutSeconds) * time.Second,
 	}
 
-	logger.Error("Server starting", "port", controller.Config.ServerPort)
+	slog.Info("Server starting", "port", controller.Config.ServerPort)
 	if err := server.ListenAndServe(); err != nil {
-		logger.Error("Server failed to start", "error", err)
+		slog.Error("Server failed to start", "error", err)
 		os.Exit(1)
 	}
 }
@@ -101,8 +107,10 @@ func InitChiServer(controller *ChiController) *chi.Mux {
 	}))
 
 	// Static files
-	fileServer := http.FileServer(http.FS(staticFiles))
-	r.Handle("/public/*", http.StripPrefix("/public/", fileServer))
+	stylesServer := http.FileServer(http.FS(styles))
+	r.Handle("/public/styles/*", stylesServer)
+	scriptsServer := http.FileServer(http.FS(scripts))
+	r.Handle("/public/scripts/*", scriptsServer)
 
 	// Routes
 	r.Get("/status", controller.StatusHandler)
@@ -140,38 +148,26 @@ func InitChiServer(controller *ChiController) *chi.Mux {
 
 // renderTemplate renders an HTML template
 func (controller *ChiController) renderTemplate(w http.ResponseWriter, templateName string, data interface{}, statusCode int) error {
-	// List all files in the embedded filesystem for debugging
-	entries, err := staticFiles.ReadDir("public/views")
-	if err != nil {
-		logger.Error("Failed to read embedded files", "error", err)
-		return err
-	}
-	for _, entry := range entries {
-		logger.Info("Embedded file", "name", entry.Name(), "isDir", entry.IsDir())
-	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(statusCode)
-
-	tmpl := template.Must(template.New("").ParseFS(staticFiles, "public/views/*.html"))
+	tmpl := template.Must(template.New("").ParseFS(viewFiles, "views/*.html"))
 	// Use base name without .html extension for execution
 	baseName := templateName
 	if strings.HasSuffix(templateName, ".html") {
 		baseName = strings.TrimSuffix(templateName, ".html")
 	}
-	err = tmpl.ExecuteTemplate(w, baseName, data)
+	err := tmpl.ExecuteTemplate(w, baseName, data)
 	if err != nil {
-		logger.Error("Template execution failed", "templateName", baseName, "error", err)
+		slog.Error("Template execution failed", "templateName", baseName, "error", err)
 		return err
 	}
 	return nil
 }
 
-// Middleware functions
-
 // loggingMiddleware logs all requests
 func (controller *ChiController) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger.Info("Incoming request",
+		slog.Info("Incoming request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"query", r.URL.RawQuery,
@@ -181,7 +177,7 @@ func (controller *ChiController) loggingMiddleware(next http.Handler) http.Handl
 		// Log form data for POST requests
 		if r.Method == "POST" {
 			if err := r.ParseForm(); err == nil {
-				logger.Info("Form data", "form", r.Form)
+				slog.Info("Form data", "form", r.Form)
 			}
 		}
 
@@ -190,7 +186,7 @@ func (controller *ChiController) loggingMiddleware(next http.Handler) http.Handl
 
 		next.ServeHTTP(ww, r)
 
-		logger.Info("Request completed",
+		slog.Info("Request completed",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", ww.Status(),
@@ -203,7 +199,7 @@ func (controller *ChiController) sessionMiddleware(next http.Handler) http.Handl
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session, err := controller.sessionStore.Get(r, "session")
 		if err != nil {
-			logger.Error("Failed to get session", "error", err)
+			slog.Error("Failed to get session", "error", err)
 		}
 
 		// Add session to request context
