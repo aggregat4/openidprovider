@@ -139,7 +139,7 @@ func InitChiServer(controller *ChiController) *chi.Mux {
 }
 
 // renderTemplate renders an HTML template
-func (controller *ChiController) renderTemplate(w http.ResponseWriter, templateName string, data interface{}) error {
+func (controller *ChiController) renderTemplate(w http.ResponseWriter, templateName string, data interface{}, statusCode int) error {
 	// List all files in the embedded filesystem for debugging
 	entries, err := staticFiles.ReadDir("public/views")
 	if err != nil {
@@ -149,8 +149,10 @@ func (controller *ChiController) renderTemplate(w http.ResponseWriter, templateN
 	for _, entry := range entries {
 		logger.Info("Embedded file", "name", entry.Name(), "isDir", entry.IsDir())
 	}
-	tmpl := template.Must(template.New("").ParseFS(staticFiles, "public/views/*.html"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(statusCode)
+
+	tmpl := template.Must(template.New("").ParseFS(staticFiles, "public/views/*.html"))
 	// Use base name without .html extension for execution
 	baseName := templateName
 	if strings.HasSuffix(templateName, ".html") {
