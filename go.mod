@@ -4,8 +4,6 @@ go 1.24.1
 
 require github.com/aggregat4/go-baselib v1.4.0
 
-//replace github.com/aggregat4/go-baselib => ../go-baselib
-
 require (
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/gorilla/sessions v1.4.0
@@ -13,15 +11,12 @@ require (
 	github.com/knadh/koanf/parsers/json v0.1.0
 	github.com/knadh/koanf/providers/file v1.1.2
 	github.com/knadh/koanf/v2 v2.1.2
-	github.com/labstack/echo-contrib v0.17.4
-	github.com/labstack/echo/v4 v4.13.4
 	github.com/stretchr/testify v1.10.0
 )
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.4
-	github.com/gorilla/context v1.1.2 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
@@ -56,3 +51,7 @@ require (
 	github.com/aggregat4/go-baselib-services/v3 v3.4.2
 	github.com/sendgrid/sendgrid-go v3.16.0+incompatible
 )
+
+require github.com/go-chi/chi/v5 v5.2.2
+
+require github.com/labstack/echo/v4 v4.13.4 // indirect

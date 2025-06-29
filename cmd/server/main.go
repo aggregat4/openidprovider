@@ -45,7 +45,7 @@ func main() {
 		emailSender = email.NewEmailService(config.SendgridConfig, &store)
 	}
 
-	server.RunServer(server.Controller{
+	server.RunChiServer(server.Controller{
 		Store:           &store,
 		Config:          config,
 		EmailService:    emailSender,

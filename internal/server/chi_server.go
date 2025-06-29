@@ -1,0 +1,260 @@
+package server
+
+import (
+	"aggregat4/openidprovider/internal/cleanup"
+	"aggregat4/openidprovider/internal/domain"
+	"aggregat4/openidprovider/internal/repository"
+	"aggregat4/openidprovider/pkg/email"
+	"context"
+	"crypto/subtle"
+	"embed"
+	"html/template"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	baselibmiddleware "github.com/aggregat4/go-baselib-services/v3/middleware"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
+	"github.com/gorilla/sessions"
+)
+
+// Context key types to avoid string collisions
+type contextKey string
+
+const (
+	sessionContextKey  contextKey = "session"
+	clientIDContextKey contextKey = "client_id"
+)
+
+type Controller struct {
+	Store           *repository.Store
+	Config          domain.Configuration
+	EmailService    email.EmailSender
+	CleanupJob      *cleanup.CleanupJob
+	CaptchaVerifier CaptchaVerifier
+}
+
+var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+const ContentTypeJson = "application/json;charset=UTF-8"
+
+//go:embed public/views/*.html public/styles/*.css public/scripts/*.js
+var staticFiles embed.FS
+
+// ChiController wraps the controller with Chi-specific functionality
+type ChiController struct {
+	*Controller
+	sessionStore *sessions.CookieStore
+}
+
+// NewChiController creates a new Chi-based controller
+func NewChiController(controller *Controller) *ChiController {
+	return &ChiController{
+		Controller:   controller,
+		sessionStore: sessions.NewCookieStore([]byte(uuid.New().String())),
+	}
+}
+
+// RunChiServer starts the Chi-based server
+func RunChiServer(controller Controller) {
+	chiController := NewChiController(&controller)
+	router := InitChiServer(chiController)
+
+	server := &http.Server{
+		Addr:         ":" + strconv.Itoa(controller.Config.ServerPort),
+		Handler:      router,
+		ReadTimeout:  time.Duration(controller.Config.ServerReadTimeoutSeconds) * time.Second,
+		WriteTimeout: time.Duration(controller.Config.ServerWriteTimeoutSeconds) * time.Second,
+	}
+
+	logger.Error("Server starting", "port", controller.Config.ServerPort)
+	if err := server.ListenAndServe(); err != nil {
+		logger.Error("Server failed to start", "error", err)
+		os.Exit(1)
+	}
+}
+
+// InitChiServer initializes the Chi router with all routes and middleware
+func InitChiServer(controller *ChiController) *chi.Mux {
+	r := chi.NewRouter()
+
+	// Start cleanup job
+	controller.CleanupJob = cleanup.NewCleanupJob(controller.Store, controller.Config.CleanupConfig)
+	controller.CleanupJob.Start()
+
+	// Middleware
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(controller.loggingMiddleware)
+	r.Use(controller.sessionMiddleware)
+	r.Use(middleware.Compress(5))
+	r.Use(controller.basicAuthMiddleware)
+	r.Use(baselibmiddleware.CreateCsrfMiddlewareWithSkipperStd(func(r *http.Request) bool {
+		return r.URL.Path == "/token"
+	}))
+
+	// Static files
+	fileServer := http.FileServer(http.FS(staticFiles))
+	r.Handle("/public/*", http.StripPrefix("/public/", fileServer))
+
+	// Routes
+	r.Get("/status", controller.StatusHandler)
+
+	r.Get("/.well-known/openid-configuration", controller.OpenIdConfigurationHandler)
+	r.Get("/.well-known/jwks.json", controller.JwksHandler)
+
+	r.Get("/authorize", controller.AuthorizeHandler)
+	r.Post("/authorize", controller.AuthorizeHandler)
+
+	r.Get("/login", controller.LoginHandler)
+	r.Post("/login", controller.LoginHandler)
+
+	r.Post("/token", controller.TokenHandler)
+
+	r.Get("/register", controller.ShowRegisterPageHandler)
+	r.Post("/register", controller.RegisterHandler)
+
+	r.Get("/verify", controller.ShowVerificationPageHandler)
+	r.Post("/verify", controller.VerifyHandler)
+
+	r.Get("/forgot-password", controller.ShowForgotPasswordPageHandler)
+	r.Post("/forgot-password", controller.ForgotPasswordHandler)
+	r.Get("/reset-password", controller.ShowResetPasswordPageHandler)
+	r.Post("/reset-password", controller.ResetPasswordHandler)
+
+	r.Get("/delete-account", controller.ShowDeleteAccountPageHandler)
+	r.Post("/delete-account", controller.DeleteAccountHandler)
+	r.Get("/verify-delete", controller.ShowVerifyDeletePageHandler)
+	r.Post("/verify-delete", controller.VerifyDeleteHandler)
+	r.Get("/verify-delete/resend", controller.ResendDeleteVerificationHandler)
+
+	return r
+}
+
+// renderTemplate renders an HTML template
+func (controller *ChiController) renderTemplate(w http.ResponseWriter, templateName string, data interface{}) error {
+	// List all files in the embedded filesystem for debugging
+	entries, err := staticFiles.ReadDir("public/views")
+	if err != nil {
+		logger.Error("Failed to read embedded files", "error", err)
+		return err
+	}
+	for _, entry := range entries {
+		logger.Info("Embedded file", "name", entry.Name(), "isDir", entry.IsDir())
+	}
+	tmpl := template.Must(template.New("").ParseFS(staticFiles, "public/views/*.html"))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Use base name without .html extension for execution
+	baseName := templateName
+	if strings.HasSuffix(templateName, ".html") {
+		baseName = strings.TrimSuffix(templateName, ".html")
+	}
+	err = tmpl.ExecuteTemplate(w, baseName, data)
+	if err != nil {
+		logger.Error("Template execution failed", "templateName", baseName, "error", err)
+		return err
+	}
+	return nil
+}
+
+// Middleware functions
+
+// loggingMiddleware logs all requests
+func (controller *ChiController) loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger.Info("Incoming request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"query", r.URL.RawQuery,
+			"user_agent", r.UserAgent(),
+			"remote_addr", r.RemoteAddr)
+
+		// Log form data for POST requests
+		if r.Method == "POST" {
+			if err := r.ParseForm(); err == nil {
+				logger.Info("Form data", "form", r.Form)
+			}
+		}
+
+		// Create a response writer wrapper to capture status
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+		next.ServeHTTP(ww, r)
+
+		logger.Info("Request completed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", ww.Status(),
+			"size", ww.BytesWritten())
+	})
+}
+
+// sessionMiddleware adds session support
+func (controller *ChiController) sessionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, err := controller.sessionStore.Get(r, "session")
+		if err != nil {
+			logger.Error("Failed to get session", "error", err)
+		}
+
+		// Add session to request context
+		ctx := context.WithValue(r.Context(), sessionContextKey, session)
+		next.ServeHTTP(w, r.WithContext(ctx))
+
+		// Save session if modified
+		if session.IsNew {
+			session.Save(r, w)
+		}
+	})
+}
+
+// basicAuthMiddleware adds basic authentication for token endpoint
+func (controller *ChiController) basicAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip basic auth for non-token endpoints
+		if r.URL.Path != "/token" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		username, password, basicAuthOk := r.BasicAuth()
+		client, clientExists := controller.Config.RegisteredClients[domain.ClientId(username)]
+
+		decodedUsername, err := url.QueryUnescape(username)
+		if err != nil {
+			decodedUsername = ""
+		}
+		decodedPassword, err := url.QueryUnescape(password)
+		if err != nil {
+			decodedPassword = ""
+		}
+
+		if !clientExists || !basicAuthOk {
+			// make sure we nevertheless compare the username and password to make timing attacks harder
+			subtle.ConstantTimeCompare([]byte(decodedUsername), []byte("this is not a valid client id"))
+			subtle.ConstantTimeCompare([]byte(decodedPassword), []byte("this is not a valid client secret"))
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		if subtle.ConstantTimeCompare([]byte(decodedUsername), []byte(client.Id)) == 1 &&
+			subtle.ConstantTimeCompare([]byte(decodedPassword), []byte(client.BasicAuthSecret)) == 1 {
+			// Add client_id to request context to indicate that the client is authenticated
+			ctx := context.WithValue(r.Context(), clientIDContextKey, username)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		} else {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	})
+}
