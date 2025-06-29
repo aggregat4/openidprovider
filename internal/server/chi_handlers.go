@@ -479,7 +479,7 @@ func (controller *ChiController) showLoginPageChi(w http.ResponseWriter, r *http
 		Scope:       scope,
 	}
 
-	controller.renderTemplate(w, "login.html", page)
+	controller.renderTemplate(w, "login.html", page, http.StatusOK)
 }
 
 // ShowRegisterPageHandler handles the register page display
@@ -499,7 +499,7 @@ func (controller *ChiController) ShowRegisterPageHandler(w http.ResponseWriter, 
 		AltchaChallenge: altchaChallenge,
 	}
 
-	controller.renderTemplate(w, "register.html", page)
+	controller.renderTemplate(w, "register.html", page, http.StatusOK)
 }
 
 // RegisterHandler handles user registration
@@ -593,7 +593,6 @@ func (controller *ChiController) RegisterHandler(w http.ResponseWriter, r *http.
 		// If last attempt was less than 5 minutes ago, show debounce message
 		if time.Now().Unix()-lastAttempt < 300 {
 			logger.Info("register handler email debouncing", "last_attempt", lastAttempt, "time_since", time.Now().Unix()-lastAttempt)
-			w.WriteHeader(http.StatusTooManyRequests)
 			controller.renderRegisterErrorChi(w, r, email, "Please wait a few minutes before trying again", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
@@ -681,8 +680,7 @@ func (controller *ChiController) ShowVerificationPageHandler(w http.ResponseWrit
 			Code:  code,
 			Error: "Invalid or missing verification code",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "verify.html", page)
+		controller.renderTemplate(w, "verify.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -700,8 +698,7 @@ func (controller *ChiController) VerifyHandler(w http.ResponseWriter, r *http.Re
 		page := VerifyPage{
 			Error: "Verification code is required",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "verify.html", page)
+		controller.renderTemplate(w, "verify.html", page, http.StatusBadRequest)
 		return
 	}
 	logger.Info("verify handler received code", "code", code)
@@ -720,8 +717,7 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 		page := VerifyPage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "verify.html", page)
+		controller.renderTemplate(w, "verify.html", page, http.StatusInternalServerError)
 		return
 	}
 
@@ -730,8 +726,7 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 		page := VerifyPage{
 			Error: "Invalid or expired verification code",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "verify.html", page)
+		controller.renderTemplate(w, "verify.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -746,8 +741,7 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 		page := VerifyPage{
 			Error: "Verification link has expired",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "verify.html", page)
+		controller.renderTemplate(w, "verify.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -758,8 +752,7 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 		page := VerifyPage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "verify.html", page)
+		controller.renderTemplate(w, "verify.html", page, http.StatusInternalServerError)
 		return
 	}
 
@@ -775,7 +768,7 @@ func (controller *ChiController) verifyWithCodeChi(w http.ResponseWriter, r *htt
 	page := VerifyPage{
 		Success: "Verification successful",
 	}
-	controller.renderTemplate(w, "verify.html", page)
+	controller.renderTemplate(w, "verify.html", page, http.StatusOK)
 }
 
 // ShowForgotPasswordPageHandler handles the forgot password page display
@@ -788,7 +781,7 @@ func (controller *ChiController) ShowForgotPasswordPageHandler(w http.ResponseWr
 		Success: "",
 	}
 
-	controller.renderTemplate(w, "forgot-password.html", page)
+	controller.renderTemplate(w, "forgot-password.html", page, http.StatusOK)
 }
 
 // ForgotPasswordHandler handles forgot password requests
@@ -803,8 +796,7 @@ func (controller *ChiController) ForgotPasswordHandler(w http.ResponseWriter, r 
 			Email: email,
 			Error: "Email is required",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "forgot-password.html", page)
+		controller.renderTemplate(w, "forgot-password.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -821,7 +813,7 @@ func (controller *ChiController) ForgotPasswordHandler(w http.ResponseWriter, r 
 			Email:   email,
 			Success: "If an account exists with this email, you will receive a password reset link.",
 		}
-		controller.renderTemplate(w, "forgot-password.html", page)
+		controller.renderTemplate(w, "forgot-password.html", page, http.StatusOK)
 		return
 	}
 
@@ -853,7 +845,7 @@ func (controller *ChiController) ForgotPasswordHandler(w http.ResponseWriter, r 
 		Email:   email,
 		Success: "If an account exists with this email, you will receive a password reset link.",
 	}
-	controller.renderTemplate(w, "forgot-password.html", page)
+	controller.renderTemplate(w, "forgot-password.html", page, http.StatusOK)
 }
 
 // ShowResetPasswordPageHandler handles the reset password page display
@@ -868,7 +860,7 @@ func (controller *ChiController) ShowResetPasswordPageHandler(w http.ResponseWri
 		Success: "",
 	}
 
-	controller.renderTemplate(w, "reset-password.html", page)
+	controller.renderTemplate(w, "reset-password.html", page, http.StatusOK)
 }
 
 // ResetPasswordHandler handles password reset
@@ -885,8 +877,7 @@ func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *
 			Token: token,
 			Error: "All fields are required",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "reset-password.html", page)
+		controller.renderTemplate(w, "reset-password.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -895,8 +886,7 @@ func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *
 			Token: token,
 			Error: "Passwords do not match",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "reset-password.html", page)
+		controller.renderTemplate(w, "reset-password.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -906,8 +896,7 @@ func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *
 		page := ResetPasswordPage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "reset-password.html", page)
+		controller.renderTemplate(w, "reset-password.html", page, http.StatusInternalServerError)
 		return
 	}
 
@@ -915,8 +904,7 @@ func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *
 		page := ResetPasswordPage{
 			Error: "Invalid or expired reset link",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "reset-password.html", page)
+		controller.renderTemplate(w, "reset-password.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -926,15 +914,13 @@ func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *
 			page := ResetPasswordPage{
 				Error: "Internal error",
 			}
-			w.WriteHeader(http.StatusInternalServerError)
-			controller.renderTemplate(w, "reset-password.html", page)
+			controller.renderTemplate(w, "reset-password.html", page, http.StatusInternalServerError)
 			return
 		}
 		page := ResetPasswordPage{
 			Error: "Reset link has expired",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "reset-password.html", page)
+		controller.renderTemplate(w, "reset-password.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -944,8 +930,7 @@ func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *
 		page := ResetPasswordPage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "reset-password.html", page)
+		controller.renderTemplate(w, "reset-password.html", page, http.StatusInternalServerError)
 		return
 	}
 
@@ -955,8 +940,7 @@ func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *
 		page := ResetPasswordPage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "reset-password.html", page)
+		controller.renderTemplate(w, "reset-password.html", page, http.StatusInternalServerError)
 		return
 	}
 
@@ -966,21 +950,20 @@ func (controller *ChiController) ResetPasswordHandler(w http.ResponseWriter, r *
 		page := ResetPasswordPage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "reset-password.html", page)
+		controller.renderTemplate(w, "reset-password.html", page, http.StatusInternalServerError)
 		return
 	}
 
 	page := ResetPasswordPage{
 		Success: "Password has been reset successfully. You can now log in with your new password.",
 	}
-	controller.renderTemplate(w, "reset-password.html", page)
+	controller.renderTemplate(w, "reset-password.html", page, http.StatusOK)
 }
 
 // ShowDeleteAccountPageHandler handles the delete account page display
 func (controller *ChiController) ShowDeleteAccountPageHandler(w http.ResponseWriter, r *http.Request) {
 	logger.Info("Show delete account page")
-	controller.renderTemplate(w, "delete-account.html", DeleteAccountPage{})
+	controller.renderTemplate(w, "delete-account.html", DeleteAccountPage{}, http.StatusOK)
 }
 
 // DeleteAccountHandler handles account deletion requests
@@ -992,8 +975,7 @@ func (controller *ChiController) DeleteAccountHandler(w http.ResponseWriter, r *
 		page := DeleteAccountPage{
 			Error: "Email is required",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "delete-account.html", page)
+		controller.renderTemplate(w, "delete-account.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -1003,8 +985,7 @@ func (controller *ChiController) DeleteAccountHandler(w http.ResponseWriter, r *
 		page := DeleteAccountPage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "delete-account.html", page)
+		controller.renderTemplate(w, "delete-account.html", page, http.StatusInternalServerError)
 		return
 	}
 
@@ -1013,7 +994,7 @@ func (controller *ChiController) DeleteAccountHandler(w http.ResponseWriter, r *
 		page := DeleteAccountPage{
 			Success: "If your account exists and is verified, you will receive an email with instructions to delete it.",
 		}
-		controller.renderTemplate(w, "delete-account.html", page)
+		controller.renderTemplate(w, "delete-account.html", page, http.StatusOK)
 		return
 	}
 
@@ -1032,8 +1013,7 @@ func (controller *ChiController) DeleteAccountHandler(w http.ResponseWriter, r *
 		page := DeleteAccountPage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "delete-account.html", page)
+		controller.renderTemplate(w, "delete-account.html", page, http.StatusInternalServerError)
 		return
 	}
 
@@ -1047,7 +1027,7 @@ func (controller *ChiController) DeleteAccountHandler(w http.ResponseWriter, r *
 	page := DeleteAccountPage{
 		Success: "If your account exists and is verified, you will receive an email with instructions to delete it.",
 	}
-	controller.renderTemplate(w, "delete-account.html", page)
+	controller.renderTemplate(w, "delete-account.html", page, http.StatusOK)
 }
 
 // TODO: this implementation does not seem right, we just always show the page with an error??
@@ -1063,7 +1043,7 @@ func (controller *ChiController) ShowVerifyDeletePageHandler(w http.ResponseWrit
 		Success: "",
 	}
 
-	controller.renderTemplate(w, "verify-delete.html", page)
+	controller.renderTemplate(w, "verify-delete.html", page, http.StatusOK)
 }
 
 // VerifyDeleteHandler handles delete verification
@@ -1075,8 +1055,7 @@ func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *h
 		page := VerifyDeletePage{
 			Error: "Verification code is required",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "verify-delete.html", page)
+		controller.renderTemplate(w, "verify-delete.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -1086,8 +1065,7 @@ func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *h
 		page := VerifyDeletePage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "verify-delete.html", page)
+		controller.renderTemplate(w, "verify-delete.html", page, http.StatusInternalServerError)
 		return
 	}
 
@@ -1095,8 +1073,7 @@ func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *h
 		page := VerifyDeletePage{
 			Error: "Invalid or expired verification code",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "verify-delete.html", page)
+		controller.renderTemplate(w, "verify-delete.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -1106,8 +1083,7 @@ func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *h
 		page := VerifyDeletePage{
 			Error: "Verification code has expired",
 		}
-		w.WriteHeader(http.StatusBadRequest)
-		controller.renderTemplate(w, "verify-delete.html", page)
+		controller.renderTemplate(w, "verify-delete.html", page, http.StatusBadRequest)
 		return
 	}
 
@@ -1117,8 +1093,7 @@ func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *h
 		page := VerifyDeletePage{
 			Error: "Internal error",
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		controller.renderTemplate(w, "verify-delete.html", page)
+		controller.renderTemplate(w, "verify-delete.html", page, http.StatusInternalServerError)
 		return
 	}
 
@@ -1133,7 +1108,7 @@ func (controller *ChiController) VerifyDeleteHandler(w http.ResponseWriter, r *h
 	page := VerifyDeletePage{
 		Success: "Your account has been deleted successfully.",
 	}
-	controller.renderTemplate(w, "verify-delete.html", page)
+	controller.renderTemplate(w, "verify-delete.html", page, http.StatusOK)
 }
 
 // ResendDeleteVerificationHandler handles resending delete verification
@@ -1222,13 +1197,12 @@ func (controller *ChiController) sendVerificationEmail(email string) error {
 
 // renderRegisterErrorChi renders the registration page with an error message
 func (controller *ChiController) renderRegisterErrorChi(w http.ResponseWriter, r *http.Request, email, errorMsg, altchaChallenge string, statusCode int) {
-	w.WriteHeader(statusCode)
 	page := RegisterPage{
 		Email:           email,
 		Error:           errorMsg,
 		AltchaChallenge: altchaChallenge,
 	}
-	controller.renderTemplate(w, "register.html", page)
+	controller.renderTemplate(w, "register.html", page, statusCode)
 }
 
 // renderRegisterSuccessChi renders the registration page with a success message
@@ -1238,7 +1212,7 @@ func (controller *ChiController) renderRegisterSuccessChi(w http.ResponseWriter,
 		Success:         successMsg,
 		AltchaChallenge: altchaChallenge,
 	}
-	controller.renderTemplate(w, "register.html", page)
+	controller.renderTemplate(w, "register.html", page, http.StatusOK)
 }
 
 // GenerateIdToken See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
