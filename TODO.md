@@ -1,5 +1,12 @@
 # TODO
 
+## Switch to a new transactional email provider
+
+Ask mailpace whether I can be on the free plan?
+
+## See how hard it would be to migrate away from Echo to a plain go webserver with gorilla sessions and chi router (or whatever router is du jour)
+
+
 ## Fixes
 
   * verify why the demo setup login does not work, it says invalid credentials even if I use the same user and password used for created the demo db
