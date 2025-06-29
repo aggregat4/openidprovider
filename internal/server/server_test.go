@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/labstack/echo/v4"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/google/uuid"
@@ -70,16 +69,16 @@ var serverConfig = domain.Configuration{
 
 // Test functions start here
 func TestAuthorizeWithoutParameters(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	client := createTestHttpClient()
 	res := makeGetRequest(t, client, AuthorizeUrl)
 	assert.Equal(t, 400, res.StatusCode)
 }
 
 func TestAuthorize(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	client := createTestHttpClient()
 	authorizeUrl := createAuthorizeUrl(t, "openid")
 	res := makeGetRequest(t, client, authorizeUrl.String())
@@ -92,8 +91,8 @@ func TestAuthorize(t *testing.T) {
 }
 
 func TestAuthorizeWithInvalidScope(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	client := createTestHttpClient()
 	authorizeUrl := createAuthorizeUrl(t, "openid invalid_scope")
 	res := makeGetRequest(t, client, authorizeUrl.String())
@@ -103,8 +102,8 @@ func TestAuthorizeWithInvalidScope(t *testing.T) {
 }
 
 func TestAuthorizeWithValidScopes(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	client := createTestHttpClient()
 	authorizeUrl := createAuthorizeUrl(t, "openid profile")
 	res := makeGetRequest(t, client, authorizeUrl.String())
@@ -114,8 +113,8 @@ func TestAuthorizeWithValidScopes(t *testing.T) {
 }
 
 func TestLoginPageGet(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	client := &http.Client{}
 	res := makeGetRequest(t, client, LoginUrl)
@@ -126,8 +125,8 @@ func TestLoginPageGet(t *testing.T) {
 }
 
 func TestLoginWithUnknownUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	// Don't create a test user so we can assert that we get an error
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TestPassword)
@@ -138,8 +137,8 @@ func TestLoginWithUnknownUser(t *testing.T) {
 }
 
 func TestLoginWithWrongPassword(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	createTestUser(t, controller)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, "WRONGPASSWORD")
@@ -150,8 +149,8 @@ func TestLoginWithWrongPassword(t *testing.T) {
 }
 
 func TestLoginWithExistingUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TestPassword)
@@ -165,8 +164,8 @@ func TestLoginWithExistingUser(t *testing.T) {
 }
 
 func TestLoginAndFetchToken(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 	client := createTestHttpClient()
 	res := performAuthorizeAndLogin(t, client, TestPassword)
@@ -250,8 +249,8 @@ func TestGenerateIdTokenWithWrongSecret(t *testing.T) {
 }
 
 func TestForgotPasswordWithNonExistentUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	client := createTestHttpClient()
 	data := url.Values{}
@@ -264,8 +263,8 @@ func TestForgotPasswordWithNonExistentUser(t *testing.T) {
 }
 
 func TestForgotPasswordWithUnverifiedUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	createTestUserWithPassword(t, controller, TestUsername, TestPassword)
 
@@ -280,8 +279,8 @@ func TestForgotPasswordWithUnverifiedUser(t *testing.T) {
 }
 
 func TestForgotPasswordWithVerifiedUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
@@ -304,8 +303,8 @@ func TestForgotPasswordWithVerifiedUser(t *testing.T) {
 }
 
 func TestResetPasswordWithInvalidToken(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	client := createTestHttpClient()
 	data := url.Values{}
@@ -320,8 +319,8 @@ func TestResetPasswordWithInvalidToken(t *testing.T) {
 }
 
 func TestResetPasswordWithExpiredToken(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
@@ -343,8 +342,8 @@ func TestResetPasswordWithExpiredToken(t *testing.T) {
 }
 
 func TestResetPasswordSuccess(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
@@ -376,8 +375,8 @@ func TestResetPasswordSuccess(t *testing.T) {
 }
 
 func TestCleanupJob(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	// Create test data
 	// Create an unverified user that's older than max age
@@ -482,8 +481,8 @@ func TestCleanupJob(t *testing.T) {
 }
 
 func TestDeleteAccountWithNonExistentUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	data := url.Values{}
 	data.Set("email", "nonexistent@example.com")
@@ -494,8 +493,8 @@ func TestDeleteAccountWithNonExistentUser(t *testing.T) {
 }
 
 func TestDeleteAccountWithUnverifiedUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	createTestUserWithPassword(t, controller, TestUsername, TestPassword)
 
 	data := url.Values{}
@@ -507,8 +506,8 @@ func TestDeleteAccountWithUnverifiedUser(t *testing.T) {
 }
 
 func TestDeleteAccountWithVerifiedUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	data := url.Values{}
@@ -531,8 +530,8 @@ func TestDeleteAccountWithVerifiedUser(t *testing.T) {
 }
 
 func TestVerifyDeleteWithInvalidToken(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	data := url.Values{}
 	data.Set("code", "invalid-token")
@@ -543,8 +542,8 @@ func TestVerifyDeleteWithInvalidToken(t *testing.T) {
 }
 
 func TestVerifyDeleteWithExpiredToken(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	// Create an expired token
@@ -562,8 +561,8 @@ func TestVerifyDeleteWithExpiredToken(t *testing.T) {
 }
 
 func TestVerifyDeleteSuccess(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
 
 	// Create a valid token
@@ -588,8 +587,8 @@ func TestVerifyDeleteSuccess(t *testing.T) {
 }
 
 func TestIdTokenWithClaims(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	// Create and verify a test user
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
@@ -676,8 +675,8 @@ func TestIdTokenWithClaims(t *testing.T) {
 }
 
 func TestOpenIdConfiguration(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	client := &http.Client{}
 	res, err := client.Get("http://localhost:1323/.well-known/openid-configuration")
@@ -719,8 +718,8 @@ func TestOpenIdConfiguration(t *testing.T) {
 }
 
 func TestRegistrationWithNewUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	client := createTestHttpClient()
 	data := url.Values{}
@@ -755,8 +754,8 @@ func TestRegistrationWithNewUser(t *testing.T) {
 }
 
 func TestRegistrationWithExistingVerifiedUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	// Create a verified user first
 	createVerifiedTestUser(t, controller, "existing@example.com", "password")
@@ -783,8 +782,8 @@ func TestRegistrationWithExistingVerifiedUser(t *testing.T) {
 }
 
 func TestRegistrationWithExistingUnverifiedUser(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	// Create an unverified user first
 	createTestUserWithPassword(t, controller, "unverified@example.com", "password")
@@ -814,8 +813,8 @@ func TestRegistrationWithExistingUnverifiedUser(t *testing.T) {
 }
 
 func TestRegistrationEmailDebouncing(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	client := createTestHttpClient()
 	email := "debounce@example.com"
@@ -847,8 +846,8 @@ func TestRegistrationEmailDebouncing(t *testing.T) {
 }
 
 func TestRegistrationWithInvalidData(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	client := createTestHttpClient()
 
@@ -915,8 +914,8 @@ func TestRegistrationWithInvalidData(t *testing.T) {
 }
 
 func TestRegistrationVerification(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	// Create an unverified user and verification token
 	email := "verify@example.com"
@@ -944,8 +943,8 @@ func TestRegistrationVerification(t *testing.T) {
 }
 
 func TestRegistrationVerificationWithInvalidToken(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	client := createTestHttpClient()
 	data := url.Values{}
@@ -958,8 +957,8 @@ func TestRegistrationVerificationWithInvalidToken(t *testing.T) {
 }
 
 func TestRegistrationVerificationWithExpiredToken(t *testing.T) {
-	echoServer, controller := waitForServer(t)
-	defer cleanupTest(t, echoServer, controller)
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
 
 	// Create an unverified user and expired verification token
 	email := "expired@example.com"
@@ -1051,7 +1050,7 @@ func (m *MockCaptchaVerifier) VerifySolution(solution string) (bool, error) {
 	return true, nil
 }
 
-func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
+func waitForServer(t *testing.T) (*http.Server, server.Controller) {
 	fmt.Printf("DEBUG: Starting waitForServer\n")
 	loadKeys(t)
 	var store repository.Store
@@ -1069,26 +1068,35 @@ func waitForServer(t *testing.T) (*echo.Echo, server.Controller) {
 		CaptchaVerifier: &MockCaptchaVerifier{},
 	}
 	fmt.Printf("DEBUG: Creating server\n")
-	echoServer := server.InitServer(controller)
+	chiController := server.NewChiController(&controller)
+	chiServer := server.InitChiServer(chiController)
+
+	httpServer := &http.Server{
+		Addr:         ":" + strconv.Itoa(serverConfig.ServerPort),
+		Handler:      chiServer,
+		ReadTimeout:  time.Duration(serverConfig.ServerReadTimeoutSeconds) * time.Second,
+		WriteTimeout: time.Duration(serverConfig.ServerWriteTimeoutSeconds) * time.Second,
+	}
+
 	fmt.Printf("DEBUG: Starting server\n")
 	go func() {
-		_ = echoServer.Start(":" + strconv.Itoa(serverConfig.ServerPort))
+		_ = httpServer.ListenAndServe()
 	}()
 	fmt.Printf("DEBUG: Waiting for server to start\n")
 	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort)+"/status")
 	fmt.Printf("DEBUG: Server started successfully\n")
-	return echoServer, controller
+	return httpServer, controller
 }
 
-func cleanupTest(t *testing.T, echoServer *echo.Echo, controller server.Controller) {
+func cleanupTest(t *testing.T, httpServer *http.Server, controller server.Controller) {
 	// First stop the cleanup job if it exists
 	if controller.CleanupJob != nil {
 		controller.CleanupJob.Stop()
 		// Give it a moment to finish any ongoing operations
 		time.Sleep(100 * time.Millisecond)
 	}
-	// Then close the server
-	if err := echoServer.Close(); err != nil {
+	// Then close the HTTP server
+	if err := httpServer.Close(); err != nil {
 		t.Errorf("Error closing server: %v", err)
 	}
 	// Finally close the database
