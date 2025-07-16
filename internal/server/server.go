@@ -54,24 +54,9 @@ var styles embed.FS
 //go:embed public/scripts/*.js
 var scripts embed.FS
 
-// ChiController wraps the controller with Chi-specific functionality
-type ChiController struct {
-	*Controller
-	sessionStore *sessions.CookieStore
-}
-
-// NewChiController creates a new Chi-based controller
-func NewChiController(controller *Controller) *ChiController {
-	return &ChiController{
-		Controller:   controller,
-		sessionStore: sessions.NewCookieStore([]byte(uuid.New().String())),
-	}
-}
-
-// RunChiServer starts the Chi-based server
-func RunChiServer(controller Controller) {
-	chiController := NewChiController(&controller)
-	router := InitChiServer(chiController)
+// RunServer starts the Chi-based server
+func RunServer(controller Controller) {
+	router := InitServer(controller)
 
 	server := &http.Server{
 		Addr:         ":" + strconv.Itoa(controller.Config.ServerPort),
@@ -87,19 +72,21 @@ func RunChiServer(controller Controller) {
 	}
 }
 
-// InitChiServer initializes the Chi router with all routes and middleware
-func InitChiServer(controller *ChiController) *chi.Mux {
+// InitServer initializes the Chi router with all routes and middleware
+func InitServer(controller Controller) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Start cleanup job
 	controller.CleanupJob = cleanup.NewCleanupJob(controller.Store, controller.Config.CleanupConfig)
 	controller.CleanupJob.Start()
 
+	sessionStore := sessions.NewCookieStore([]byte(uuid.New().String()))
+
 	// Middleware
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(controller.loggingMiddleware)
-	r.Use(controller.sessionMiddleware)
+	r.Use(loggingMiddleware)
+	r.Use(CreateSessionMiddleware(sessionStore))
 	r.Use(middleware.Compress(5))
 	r.Use(controller.basicAuthMiddleware)
 	r.Use(baselibmiddleware.CreateCsrfMiddlewareWithSkipperStd(func(r *http.Request) bool {
@@ -147,7 +134,7 @@ func InitChiServer(controller *ChiController) *chi.Mux {
 }
 
 // renderTemplate renders an HTML template
-func (controller *ChiController) renderTemplate(w http.ResponseWriter, templateName string, data interface{}, statusCode int) error {
+func (controller *Controller) renderTemplate(w http.ResponseWriter, templateName string, data any, statusCode int) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(statusCode)
 	tmpl := template.Must(template.New("").ParseFS(viewFiles, "views/*.html"))
@@ -165,7 +152,7 @@ func (controller *ChiController) renderTemplate(w http.ResponseWriter, templateN
 }
 
 // loggingMiddleware logs all requests
-func (controller *ChiController) loggingMiddleware(next http.Handler) http.Handler {
+func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Incoming request",
 			"method", r.Method,
@@ -194,27 +181,28 @@ func (controller *ChiController) loggingMiddleware(next http.Handler) http.Handl
 	})
 }
 
-// sessionMiddleware adds session support
-func (controller *ChiController) sessionMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session, err := controller.sessionStore.Get(r, "session")
-		if err != nil {
-			slog.Error("Failed to get session", "error", err)
-		}
+func CreateSessionMiddleware(sessionStore *sessions.CookieStore) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			session, err := sessionStore.Get(r, "session")
+			if err != nil {
+				slog.Error("Failed to get session", "error", err)
+			}
 
-		// Add session to request context
-		ctx := context.WithValue(r.Context(), sessionContextKey, session)
-		next.ServeHTTP(w, r.WithContext(ctx))
+			// Add session to request context
+			ctx := context.WithValue(r.Context(), sessionContextKey, session)
+			next.ServeHTTP(w, r.WithContext(ctx))
 
-		// Save session if modified
-		if session.IsNew {
-			session.Save(r, w)
-		}
-	})
+			// Save session if modified
+			if session.IsNew {
+				session.Save(r, w)
+			}
+		})
+	}
 }
 
 // basicAuthMiddleware adds basic authentication for token endpoint
-func (controller *ChiController) basicAuthMiddleware(next http.Handler) http.Handler {
+func (controller *Controller) basicAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip basic auth for non-token endpoints
 		if r.URL.Path != "/token" {

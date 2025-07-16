@@ -48,7 +48,7 @@ func main() {
 		emailSender = email.NewEmailService(config.SendgridConfig, &store)
 	}
 
-	server.RunChiServer(server.Controller{
+	server.RunServer(server.Controller{
 		Store:           &store,
 		Config:          config,
 		EmailService:    emailSender,
@@ -100,16 +100,16 @@ func readConfig(configFileLocation string) domain.Configuration {
 	}
 
 	configuredClients := k.Get("registeredclients")
-	// NOTE: I tried casting to `[]map[string]interface{}` but that did not work, even though that is the type
+	// NOTE: I tried casting to `[]map[string]any` but that did not work, even though that is the type
 	// Apparently go does not have that information yet. Instead, this is a generic object here and later in the
-	// loop we cast the objects to a `map[string]interface{}`
-	clients, ok := configuredClients.([]interface{})
+	// loop we cast the objects to a `map[string]any`
+	clients, ok := configuredClients.([]any)
 	if !ok {
 		log.Fatalf("registeredclients is not an array of objects")
 	}
 	registeredClients := make(map[domain.ClientId]domain.Client)
 	for _, client := range clients {
-		client, ok := client.(map[string]interface{})
+		client, ok := client.(map[string]any)
 		if !ok {
 			log.Fatalf("client is not an object")
 		}
@@ -118,7 +118,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 			log.Fatalf("client id is not a string")
 		}
 		// NOTE: again we can not cast to `[]string` yet, we do that later for each individual redirect uri
-		redirectUris, ok := client["redirecturis"].([]interface{})
+		redirectUris, ok := client["redirecturis"].([]any)
 		if !ok {
 			log.Fatalf("redirect uris is not an array")
 		}

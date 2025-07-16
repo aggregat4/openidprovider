@@ -218,7 +218,7 @@ func TestLoginAndFetchToken(t *testing.T) {
 
 func TestGenerateValidIdToken(t *testing.T) {
 	loadKeys(t)
-	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TestClientid, TestUsername, map[string]interface{}{})
+	token, err := server.GenerateIdToken(serverConfig.JwtConfig, TestClientid, TestUsername, map[string]any{})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -241,7 +241,7 @@ func TestGenerateIdTokenWithWrongSecret(t *testing.T) {
 		IdTokenValidityMinutes: 5,
 		PrivateKey:             wrongKey,
 		PublicKey:              nil,
-	}, TestClientid, TestUsername, map[string]interface{}{})
+	}, TestClientid, TestUsername, map[string]any{})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 	_, err = decodeIdTokenClaims(token, serverConfig.JwtConfig.PublicKey)
@@ -1068,8 +1068,7 @@ func waitForServer(t *testing.T) (*http.Server, server.Controller) {
 		CaptchaVerifier: &MockCaptchaVerifier{},
 	}
 	fmt.Printf("DEBUG: Creating server\n")
-	chiController := server.NewChiController(&controller)
-	chiServer := server.InitChiServer(chiController)
+	chiServer := server.InitServer(controller)
 
 	httpServer := &http.Server{
 		Addr:         ":" + strconv.Itoa(serverConfig.ServerPort),
@@ -1186,7 +1185,7 @@ func createTestHttpClient() *http.Client {
 
 func waitForServerStart(t *testing.T, url string) {
 	maxRetries := 10
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		resp, err := http.Get(url)
 		if err == nil {
 			resp.Body.Close()
@@ -1275,7 +1274,7 @@ func createDeleteAccountToken(t *testing.T, controller server.Controller, token,
 
 func decodeIdTokenClaims(token string, publicKey *rsa.PublicKey) (jwt.MapClaims, error) {
 	claims := jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
+	_, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (any, error) {
 		return publicKey, nil
 	})
 	return claims, err
