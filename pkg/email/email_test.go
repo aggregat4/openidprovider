@@ -59,11 +59,11 @@ func TestCreateEmailMessage(t *testing.T) {
 	messageStr := string(message)
 
 	// Check that the message contains expected headers
-	if !contains(messageStr, "From: Test Sender <test@example.com>") {
+	if !contains(messageStr, "From: \"Test Sender\" <test@example.com>") {
 		t.Error("Message should contain From header")
 	}
 
-	if !contains(messageStr, "To: recipient@example.com") {
+	if !contains(messageStr, "To: <recipient@example.com>") {
 		t.Error("Message should contain To header")
 	}
 

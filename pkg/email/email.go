@@ -3,8 +3,11 @@ package email
 import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
+	"bytes"
 	"crypto/tls"
 	"fmt"
+	"mime/multipart"
+	"net/mail"
 	"net/smtp"
 	"time"
 )
@@ -108,33 +111,57 @@ func (s *EmailService) sendEmail(toEmail, subject, plainTextContent, htmlContent
 }
 
 func (s *EmailService) createEmailMessage(toEmail, subject, plainTextContent, htmlContent string) []byte {
-	// Create multipart email with both plain text and HTML
-	boundary := "boundary123456789"
+	// Create the email message using Go's standard library
+	from := mail.Address{Name: s.smtpConfig.FromName, Address: s.smtpConfig.FromEmail}
+	to := mail.Address{Address: toEmail}
 
-	message := fmt.Sprintf("From: %s <%s>\r\n", s.smtpConfig.FromName, s.smtpConfig.FromEmail)
-	message += fmt.Sprintf("To: %s\r\n", toEmail)
-	message += fmt.Sprintf("Subject: %s\r\n", subject)
-	message += "MIME-Version: 1.0\r\n"
-	message += fmt.Sprintf("Content-Type: multipart/alternative; boundary=%s\r\n", boundary)
-	message += "\r\n"
+	// Create a buffer to write the message
+	var buf bytes.Buffer
 
-	// Plain text part
-	message += fmt.Sprintf("--%s\r\n", boundary)
-	message += "Content-Type: text/plain; charset=UTF-8\r\n"
-	message += "Content-Transfer-Encoding: 8bit\r\n"
-	message += "\r\n"
-	message += plainTextContent + "\r\n"
+	// Create multipart writer first to get the boundary
+	writer := multipart.NewWriter(&buf)
+	boundary := writer.Boundary()
 
-	// HTML part
-	message += fmt.Sprintf("--%s\r\n", boundary)
-	message += "Content-Type: text/html; charset=UTF-8\r\n"
-	message += "Content-Transfer-Encoding: 8bit\r\n"
-	message += "\r\n"
-	message += htmlContent + "\r\n"
+	// Write the email headers
+	headers := make(map[string]string)
+	headers["From"] = from.String()
+	headers["To"] = to.String()
+	headers["Subject"] = subject
+	headers["MIME-Version"] = "1.0"
+	headers["Content-Type"] = fmt.Sprintf("multipart/alternative; boundary=%s", boundary)
 
-	message += fmt.Sprintf("--%s--\r\n", boundary)
+	// Write headers
+	for key, value := range headers {
+		fmt.Fprintf(&buf, "%s: %s\r\n", key, value)
+	}
+	fmt.Fprintf(&buf, "\r\n")
 
-	return []byte(message)
+	// Add plain text part
+	plainTextPart, err := writer.CreatePart(map[string][]string{
+		"Content-Type": {"text/plain; charset=UTF-8"},
+	})
+	if err != nil {
+		// This shouldn't happen in practice, but handle it gracefully
+		return []byte(fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s",
+			from.String(), to.String(), subject, plainTextContent))
+	}
+	plainTextPart.Write([]byte(plainTextContent))
+
+	// Add HTML part
+	htmlPart, err := writer.CreatePart(map[string][]string{
+		"Content-Type": {"text/html; charset=UTF-8"},
+	})
+	if err != nil {
+		// This shouldn't happen in practice, but handle it gracefully
+		return []byte(fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s",
+			from.String(), to.String(), subject, htmlContent))
+	}
+	htmlPart.Write([]byte(htmlContent))
+
+	// Close the multipart writer
+	writer.Close()
+
+	return buf.Bytes()
 }
 
 func (s *EmailService) sendViaSMTP(toEmail string, message []byte) error {
