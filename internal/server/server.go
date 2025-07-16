@@ -100,6 +100,7 @@ func InitServer(controller Controller) *chi.Mux {
 	r.Handle("/public/scripts/*", scriptsServer)
 
 	// Routes
+	r.Get("/", controller.LandingPageHandler)
 	r.Get("/status", controller.StatusHandler)
 
 	r.Get("/.well-known/openid-configuration", controller.OpenIdConfigurationHandler)

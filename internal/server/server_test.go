@@ -985,6 +985,22 @@ func TestRegistrationVerificationWithExpiredToken(t *testing.T) {
 	assert.False(t, user.Verified, "User should still be unverified after expired verification")
 }
 
+func TestLandingPage(t *testing.T) {
+	httpServer, controller := waitForServer(t)
+	defer cleanupTest(t, httpServer, controller)
+
+	client := createTestHttpClient()
+	res := makeGetRequest(t, client, "http://localhost:1323/")
+	assert.Equal(t, 200, res.StatusCode)
+	body := readBody(res)
+
+	// Verify landing page content
+	assert.Contains(t, body, "Welcome to the OpenID Provider")
+	assert.Contains(t, body, "href=\"/register\"")
+	assert.Contains(t, body, "href=\"/forgot-password\"")
+	assert.Contains(t, body, "href=\"/delete-account\"")
+}
+
 // Helper functions start here
 type MockEmailService struct {
 	SentEmails []struct {

@@ -1153,6 +1153,11 @@ func (controller *Controller) ResendDeleteVerificationHandler(w http.ResponseWri
 	redirectResponse(w, r, http.StatusFound, "/delete-account")
 }
 
+// LandingPageHandler serves the landing page at root
+func (controller *Controller) LandingPageHandler(w http.ResponseWriter, r *http.Request) {
+	controller.renderTemplate(w, "landing.html", nil, http.StatusOK)
+}
+
 // Helper methods
 
 func (controller *Controller) validateCredentials(username, password string) (bool, error) {

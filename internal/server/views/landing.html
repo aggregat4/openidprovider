@@ -1,0 +1,31 @@
+{{define "landing"}}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>OpenID Provider - Account Management</title>
+        <link rel="stylesheet" href="/public/styles/main.css">
+    </head>
+    <body>
+        <main>
+            <h1>Welcome to the OpenID Provider</h1>
+
+            <h2>Create Account</h2>
+            <a href="/register" class="btn btn-primary">Register a new account to access services</a>
+            </p>
+
+            <h2>Forgot Password</h2>
+            <p>
+            <a href="/forgot-password" class="btn btn-secondary">Reset your password if you've forgotten it</a>i
+            </p>
+
+            <h2>Delete Account</h2>
+            <p>
+            <a href="/delete-account" class="btn btn-danger">Permanently delete your account</p>
+            </p>
+            </div>
+        </main>
+    </body>
+</html>
+{{end}}
