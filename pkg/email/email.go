@@ -3,11 +3,11 @@ package email
 import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
-	"crypto/tls"
+	"context"
 	"fmt"
 	"time"
 
-	"gopkg.in/mail.v2"
+	"github.com/wneessen/go-mail"
 )
 
 type EmailSender interface {
@@ -96,16 +96,16 @@ func (s *EmailService) sendEmail(toEmail, subject, plainTextContent, htmlContent
 		return fmt.Errorf("failed to track email attempt: %w", err)
 	}
 
-	// Create email message using gomail
-	message := mail.NewMessage()
-	message.SetHeader("From", s.smtpConfig.FromEmail)
-	message.SetHeader("To", toEmail)
-	message.SetHeader("Subject", subject)
-	message.SetBody("text/plain", plainTextContent)
-	message.AddAlternative("text/html", htmlContent)
+	// Create email message using go-mail
+	msg := mail.NewMsg()
+	msg.From(s.smtpConfig.FromEmail)
+	msg.To(toEmail)
+	msg.Subject(subject)
+	msg.SetBodyString(mail.TypeTextPlain, plainTextContent)
+	msg.AddAlternativeString(mail.TypeTextHTML, htmlContent)
 
 	// Send email via SMTP
-	err = s.sendViaSMTP(message)
+	err = s.sendViaSMTP(msg)
 	if err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
@@ -113,22 +113,24 @@ func (s *EmailService) sendEmail(toEmail, subject, plainTextContent, htmlContent
 	return nil
 }
 
-func (s *EmailService) sendViaSMTP(message *mail.Message) error {
-	// Create dialer with SMTP configuration
-	dialer := mail.NewDialer(s.smtpConfig.Host, s.smtpConfig.Port, s.smtpConfig.Username, s.smtpConfig.Password)
+func (s *EmailService) sendViaSMTP(msg *mail.Msg) error {
+	// Create client with SMTP configuration
+	client, err := mail.NewClient(s.smtpConfig.Host,
+		mail.WithPort(s.smtpConfig.Port),
+		mail.WithUsername(s.smtpConfig.Username),
+		mail.WithPassword(s.smtpConfig.Password),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create mail client: %w", err)
+	}
 
-	// Configure TLS
+	// Configure TLS if required
 	if s.smtpConfig.UseTLS {
-		dialer.TLSConfig = &tls.Config{
-			ServerName: s.smtpConfig.Host,
-		}
-	} else {
-		dialer.SSL = false
-		dialer.TLSConfig = nil
+		client.SetTLSPolicy(mail.TLSMandatory)
 	}
 
 	// Send the email
-	if err := dialer.DialAndSend(message); err != nil {
+	if err := client.DialAndSendWithContext(context.Background(), msg); err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 
