@@ -48,6 +48,12 @@ require (
 
 require github.com/aggregat4/go-baselib-services/v3 v3.4.2
 
-require github.com/go-chi/chi/v5 v5.2.2
+require (
+	github.com/go-chi/chi/v5 v5.2.2
+	gopkg.in/mail.v2 v2.3.1
+)
 
-require github.com/labstack/echo/v4 v4.13.4 // indirect
+require (
+	github.com/labstack/echo/v4 v4.13.4 // indirect
+	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
+)

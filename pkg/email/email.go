@@ -3,13 +3,11 @@ package email
 import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
-	"bytes"
 	"crypto/tls"
 	"fmt"
-	"mime/multipart"
-	"net/mail"
-	"net/smtp"
 	"time"
+
+	"gopkg.in/mail.v2"
 )
 
 type EmailSender interface {
@@ -98,11 +96,16 @@ func (s *EmailService) sendEmail(toEmail, subject, plainTextContent, htmlContent
 		return fmt.Errorf("failed to track email attempt: %w", err)
 	}
 
-	// Create email message
-	message := s.createEmailMessage(toEmail, subject, plainTextContent, htmlContent)
+	// Create email message using gomail
+	message := mail.NewMessage()
+	message.SetHeader("From", s.smtpConfig.FromEmail)
+	message.SetHeader("To", toEmail)
+	message.SetHeader("Subject", subject)
+	message.SetBody("text/plain", plainTextContent)
+	message.AddAlternative("text/html", htmlContent)
 
 	// Send email via SMTP
-	err = s.sendViaSMTP(toEmail, message)
+	err = s.sendViaSMTP(message)
 	if err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
@@ -110,116 +113,26 @@ func (s *EmailService) sendEmail(toEmail, subject, plainTextContent, htmlContent
 	return nil
 }
 
-func (s *EmailService) createEmailMessage(toEmail, subject, plainTextContent, htmlContent string) []byte {
-	// Create the email message using Go's standard library
-	from := mail.Address{Name: s.smtpConfig.FromName, Address: s.smtpConfig.FromEmail}
-	to := mail.Address{Address: toEmail}
+func (s *EmailService) sendViaSMTP(message *mail.Message) error {
+	// Create dialer with SMTP configuration
+	dialer := mail.NewDialer(s.smtpConfig.Host, s.smtpConfig.Port, s.smtpConfig.Username, s.smtpConfig.Password)
 
-	// Create a buffer to write the message
-	var buf bytes.Buffer
-
-	// Create multipart writer first to get the boundary
-	writer := multipart.NewWriter(&buf)
-	boundary := writer.Boundary()
-
-	// Write the email headers
-	headers := make(map[string]string)
-	headers["From"] = from.String()
-	headers["To"] = to.String()
-	headers["Subject"] = subject
-	headers["MIME-Version"] = "1.0"
-	headers["Content-Type"] = fmt.Sprintf("multipart/alternative; boundary=%s", boundary)
-
-	// Write headers
-	for key, value := range headers {
-		fmt.Fprintf(&buf, "%s: %s\r\n", key, value)
-	}
-	fmt.Fprintf(&buf, "\r\n")
-
-	// Add plain text part
-	plainTextPart, err := writer.CreatePart(map[string][]string{
-		"Content-Type": {"text/plain; charset=UTF-8"},
-	})
-	if err != nil {
-		// This shouldn't happen in practice, but handle it gracefully
-		return []byte(fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s",
-			from.String(), to.String(), subject, plainTextContent))
-	}
-	plainTextPart.Write([]byte(plainTextContent))
-
-	// Add HTML part
-	htmlPart, err := writer.CreatePart(map[string][]string{
-		"Content-Type": {"text/html; charset=UTF-8"},
-	})
-	if err != nil {
-		// This shouldn't happen in practice, but handle it gracefully
-		return []byte(fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s",
-			from.String(), to.String(), subject, htmlContent))
-	}
-	htmlPart.Write([]byte(htmlContent))
-
-	// Close the multipart writer
-	writer.Close()
-
-	return buf.Bytes()
-}
-
-func (s *EmailService) sendViaSMTP(toEmail string, message []byte) error {
-	addr := fmt.Sprintf("%s:%d", s.smtpConfig.Host, s.smtpConfig.Port)
-
-	var auth smtp.Auth
-	if s.smtpConfig.Username != "" && s.smtpConfig.Password != "" {
-		auth = smtp.PlainAuth("", s.smtpConfig.Username, s.smtpConfig.Password, s.smtpConfig.Host)
-	}
-
+	// Configure TLS
 	if s.smtpConfig.UseTLS {
-		// Use TLS
-		tlsConfig := &tls.Config{
+		dialer.TLSConfig = &tls.Config{
 			ServerName: s.smtpConfig.Host,
 		}
-
-		conn, err := tls.Dial("tcp", addr, tlsConfig)
-		if err != nil {
-			return fmt.Errorf("failed to connect to SMTP server: %w", err)
-		}
-		defer conn.Close()
-
-		client, err := smtp.NewClient(conn, s.smtpConfig.Host)
-		if err != nil {
-			return fmt.Errorf("failed to create SMTP client: %w", err)
-		}
-		defer client.Close()
-
-		if auth != nil {
-			if err := client.Auth(auth); err != nil {
-				return fmt.Errorf("failed to authenticate: %w", err)
-			}
-		}
-
-		if err := client.Mail(s.smtpConfig.FromEmail); err != nil {
-			return fmt.Errorf("failed to set sender: %w", err)
-		}
-
-		if err := client.Rcpt(toEmail); err != nil {
-			return fmt.Errorf("failed to set recipient: %w", err)
-		}
-
-		writer, err := client.Data()
-		if err != nil {
-			return fmt.Errorf("failed to get data writer: %w", err)
-		}
-		defer writer.Close()
-
-		_, err = writer.Write(message)
-		if err != nil {
-			return fmt.Errorf("failed to write message: %w", err)
-		}
-
-		return nil
 	} else {
-		// Use non-TLS
-		return smtp.SendMail(addr, auth, s.smtpConfig.FromEmail, []string{toEmail}, message)
+		dialer.SSL = false
+		dialer.TLSConfig = nil
 	}
+
+	// Send the email
+	if err := dialer.DialAndSend(message); err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
+	}
+
+	return nil
 }
 
 func (s *EmailService) SendVerificationEmail(toEmail, verificationLink string) error {
