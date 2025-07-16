@@ -3,11 +3,10 @@ package email
 import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
+	"crypto/tls"
 	"fmt"
+	"net/smtp"
 	"time"
-
-	"github.com/sendgrid/sendgrid-go"
-	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
 type EmailSender interface {
@@ -17,15 +16,13 @@ type EmailSender interface {
 }
 
 type EmailService struct {
-	config domain.SendgridConfiguration
-	client *sendgrid.Client
+	config domain.SMTPConfiguration
 	store  *repository.Store
 }
 
-func NewEmailService(config domain.SendgridConfiguration, store *repository.Store) *EmailService {
+func NewEmailService(config domain.SMTPConfiguration, store *repository.Store) *EmailService {
 	return &EmailService{
 		config: config,
-		client: sendgrid.NewSendClient(config.APIKey),
 		store:  store,
 	}
 }
@@ -96,19 +93,104 @@ func (s *EmailService) sendEmail(toEmail, subject, plainTextContent, htmlContent
 		return fmt.Errorf("failed to track email attempt: %w", err)
 	}
 
-	from := mail.NewEmail(s.config.FromName, s.config.FromEmail)
-	to := mail.NewEmail("", toEmail)
-	message := mail.NewSingleEmail(from, subject, to, plainTextContent, htmlContent)
-	response, err := s.client.Send(message)
+	// Create email message
+	message := s.createEmailMessage(toEmail, subject, plainTextContent, htmlContent)
+
+	// Send email via SMTP
+	err = s.sendViaSMTP(toEmail, message)
 	if err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 
-	if response.StatusCode >= 400 {
-		return fmt.Errorf("failed to send email: status code %d", response.StatusCode)
+	return nil
+}
+
+func (s *EmailService) createEmailMessage(toEmail, subject, plainTextContent, htmlContent string) []byte {
+	// Create multipart email with both plain text and HTML
+	boundary := "boundary123456789"
+
+	message := fmt.Sprintf("From: %s <%s>\r\n", s.config.FromName, s.config.FromEmail)
+	message += fmt.Sprintf("To: %s\r\n", toEmail)
+	message += fmt.Sprintf("Subject: %s\r\n", subject)
+	message += "MIME-Version: 1.0\r\n"
+	message += fmt.Sprintf("Content-Type: multipart/alternative; boundary=%s\r\n", boundary)
+	message += "\r\n"
+
+	// Plain text part
+	message += fmt.Sprintf("--%s\r\n", boundary)
+	message += "Content-Type: text/plain; charset=UTF-8\r\n"
+	message += "Content-Transfer-Encoding: 8bit\r\n"
+	message += "\r\n"
+	message += plainTextContent + "\r\n"
+
+	// HTML part
+	message += fmt.Sprintf("--%s\r\n", boundary)
+	message += "Content-Type: text/html; charset=UTF-8\r\n"
+	message += "Content-Transfer-Encoding: 8bit\r\n"
+	message += "\r\n"
+	message += htmlContent + "\r\n"
+
+	message += fmt.Sprintf("--%s--\r\n", boundary)
+
+	return []byte(message)
+}
+
+func (s *EmailService) sendViaSMTP(toEmail string, message []byte) error {
+	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
+
+	var auth smtp.Auth
+	if s.config.Username != "" && s.config.Password != "" {
+		auth = smtp.PlainAuth("", s.config.Username, s.config.Password, s.config.Host)
 	}
 
-	return nil
+	if s.config.UseTLS {
+		// Use TLS
+		tlsConfig := &tls.Config{
+			ServerName: s.config.Host,
+		}
+
+		conn, err := tls.Dial("tcp", addr, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("failed to connect to SMTP server: %w", err)
+		}
+		defer conn.Close()
+
+		client, err := smtp.NewClient(conn, s.config.Host)
+		if err != nil {
+			return fmt.Errorf("failed to create SMTP client: %w", err)
+		}
+		defer client.Close()
+
+		if auth != nil {
+			if err := client.Auth(auth); err != nil {
+				return fmt.Errorf("failed to authenticate: %w", err)
+			}
+		}
+
+		if err := client.Mail(s.config.FromEmail); err != nil {
+			return fmt.Errorf("failed to set sender: %w", err)
+		}
+
+		if err := client.Rcpt(toEmail); err != nil {
+			return fmt.Errorf("failed to set recipient: %w", err)
+		}
+
+		writer, err := client.Data()
+		if err != nil {
+			return fmt.Errorf("failed to get data writer: %w", err)
+		}
+		defer writer.Close()
+
+		_, err = writer.Write(message)
+		if err != nil {
+			return fmt.Errorf("failed to write message: %w", err)
+		}
+
+		return nil
+	} else {
+		// Use non-TLS
+		return smtp.SendMail(addr, auth, s.config.FromEmail, []string{toEmail}, message)
+	}
 }
 
 func (s *EmailService) SendVerificationEmail(toEmail, verificationLink string) error {

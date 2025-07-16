@@ -34,16 +34,20 @@ type Configuration struct {
 	BaseUrl                   string
 	RegisteredClients         map[ClientId]Client
 	JwtConfig                 JwtConfiguration
-	SendgridConfig            SendgridConfiguration
+	SMTPConfig                SMTPConfiguration
 	CleanupConfig             CleanupConfiguration
 	MockEmailDemoServerURL    string
 	AltchaConfig              AltchaConfiguration
 }
 
-type SendgridConfiguration struct {
-	APIKey    string
+type SMTPConfiguration struct {
+	Host      string
+	Port      int
+	Username  string
+	Password  string
 	FromEmail string
 	FromName  string
+	UseTLS    bool
 	RateLimit struct {
 		MaxEmailsPerDay     int           `json:"maxEmailsPerDay"`
 		MaxEmailsPerAddress int           `json:"maxEmailsPerAddress"`

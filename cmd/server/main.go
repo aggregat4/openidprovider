@@ -44,8 +44,8 @@ func main() {
 		slog.Info("Using mock email sender with demo server URL " + config.MockEmailDemoServerURL)
 		emailSender = email.NewMockEmailSender(config.MockEmailDemoServerURL)
 	} else {
-		slog.Info("Using Sendgrid email sender")
-		emailSender = email.NewEmailService(config.SendgridConfig, &store)
+		slog.Info("Using SMTP email sender")
+		emailSender = email.NewEmailService(config.SMTPConfig, &store)
 	}
 
 	server.RunServer(server.Controller{
@@ -159,6 +159,63 @@ func readConfig(configFileLocation string) domain.Configuration {
 	// Get mock email demo server URL if configured
 	mockEmailDemoServerURL := k.String("mock_email_demo_server_url")
 
+	// Set default SMTP configuration
+	smtpConfig := domain.SMTPConfiguration{
+		Host:      "localhost",
+		Port:      587,
+		Username:  "",
+		Password:  "",
+		FromEmail: "noreply@example.com",
+		FromName:  "OpenID Provider",
+		UseTLS:    true,
+		RateLimit: struct {
+			MaxEmailsPerDay     int           `json:"maxEmailsPerDay"`
+			MaxEmailsPerAddress int           `json:"maxEmailsPerAddress"`
+			BackoffPeriod       time.Duration `json:"backoffPeriod"`
+			BlockPeriod         time.Duration `json:"blockPeriod"`
+		}{
+			MaxEmailsPerDay:     1000,
+			MaxEmailsPerAddress: 5,
+			BackoffPeriod:       5 * time.Minute,
+			BlockPeriod:         24 * time.Hour,
+		},
+	}
+
+	// Override with config file values if present
+	if k.Exists("smtp.host") {
+		smtpConfig.Host = k.String("smtp.host")
+	}
+	if k.Exists("smtp.port") {
+		smtpConfig.Port = k.Int("smtp.port")
+	}
+	if k.Exists("smtp.username") {
+		smtpConfig.Username = k.String("smtp.username")
+	}
+	if k.Exists("smtp.password") {
+		smtpConfig.Password = k.String("smtp.password")
+	}
+	if k.Exists("smtp.fromemail") {
+		smtpConfig.FromEmail = k.String("smtp.fromemail")
+	}
+	if k.Exists("smtp.fromname") {
+		smtpConfig.FromName = k.String("smtp.fromname")
+	}
+	if k.Exists("smtp.usetls") {
+		smtpConfig.UseTLS = k.Bool("smtp.usetls")
+	}
+	if k.Exists("smtp.ratelimit.maxemailsperday") {
+		smtpConfig.RateLimit.MaxEmailsPerDay = k.Int("smtp.ratelimit.maxemailsperday")
+	}
+	if k.Exists("smtp.ratelimit.maxemailsperaddress") {
+		smtpConfig.RateLimit.MaxEmailsPerAddress = k.Int("smtp.ratelimit.maxemailsperaddress")
+	}
+	if k.Exists("smtp.ratelimit.backoffperiod") {
+		smtpConfig.RateLimit.BackoffPeriod = time.Duration(k.MustInt("smtp.ratelimit.backoffperiod")) * time.Minute
+	}
+	if k.Exists("smtp.ratelimit.blockperiod") {
+		smtpConfig.RateLimit.BlockPeriod = time.Duration(k.MustInt("smtp.ratelimit.blockperiod")) * time.Hour
+	}
+
 	// Set default ALTCHA configuration
 	altchaConfig := domain.AltchaConfiguration{
 		HMACKey:    "",
@@ -190,6 +247,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 			PrivateKey:             privateKey,
 			PublicKey:              publicKey,
 		},
+		SMTPConfig:             smtpConfig,
 		CleanupConfig:          cleanupConfig,
 		MockEmailDemoServerURL: mockEmailDemoServerURL,
 		AltchaConfig:           altchaConfig,

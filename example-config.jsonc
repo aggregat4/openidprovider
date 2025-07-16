@@ -75,19 +75,30 @@
     "cleanupinterval": 1
   },
   
-  // Email Configuration (SendGrid)
-  // SendGrid email service configuration. Required for sending verification emails, 
+  // Email Configuration (SMTP)
+  // SMTP email service configuration. Required for sending verification emails, 
   // password resets, account deletion confirmations, etc.
-  "sendgridConfig": {
-    // SendGrid API key for sending emails. Required unless using mock email server.
-    // Get your API key from: https://app.sendgrid.com/settings/api_keys
-    "apiKey": "your-sendgrid-api-key-here",
+  "smtp": {
+    // SMTP server hostname. Default: localhost
+    "host": "smtp.gmail.com",
     
-    // Email address that will appear as the sender. Must be verified in SendGrid.
+    // SMTP server port. Default: 587
+    "port": 587,
+    
+    // SMTP username for authentication. Leave empty for no authentication.
+    "username": "your-email@gmail.com",
+    
+    // SMTP password for authentication. Leave empty for no authentication.
+    "password": "your-app-password",
+    
+    // Email address that will appear as the sender.
     "fromEmail": "noreply@yourdomain.com",
     
     // Display name for the sender email address.
     "fromName": "Your Application Name",
+    
+    // Whether to use TLS for SMTP connection. Default: true
+    "useTls": true,
     
     // Rate Limiting Configuration
     // Email rate limiting configuration to prevent abuse.
@@ -95,22 +106,22 @@
       // Maximum number of emails that can be sent per day. Default: 1000
       "maxEmailsPerDay": 1000,
       
-      // Maximum number of emails that can be sent to the same address per day. Default: 3
-      "maxEmailsPerAddress": 3,
+      // Maximum number of emails that can be sent to the same address per day. Default: 5
+      "maxEmailsPerAddress": 5,
       
       // Duration to wait after rate limit is hit before allowing more emails. 
-      // Format: Go duration (e.g., '5m', '1h'). Default: '5m'
-      "backoffPeriod": "5m",
+      // Format: minutes (e.g., 5, 60). Default: 5
+      "backoffPeriod": 5,
       
       // Duration to block an address after hitting rate limit. 
-      // Format: Go duration (e.g., '1h', '24h'). Default: '1h'
-      "blockPeriod": "1h"
+      // Format: hours (e.g., 1, 24). Default: 24
+      "blockPeriod": 24
     }
   },
   
   // Development/Testing Email Configuration
   // URL for mock email demo server. If set, emails will be sent to this server 
-  // instead of SendGrid. Useful for development/testing. Leave empty to use SendGrid.
+  // instead of SMTP. Useful for development/testing. Leave empty to use SMTP.
   // Example: http://localhost:8080 (for demo server)
   "mock_email_demo_server_url": "",
   
