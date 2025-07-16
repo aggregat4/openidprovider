@@ -75,48 +75,50 @@
     "cleanupinterval": 1
   },
   
-  // Email Configuration (SMTP)
+  // SMTP Configuration
   // SMTP email service configuration. Required for sending verification emails, 
   // password resets, account deletion confirmations, etc.
+  // All fields are required - no defaults are provided.
   "smtp": {
-    // SMTP server hostname. Default: localhost
+    // SMTP server hostname (required)
     "host": "smtp.gmail.com",
     
-    // SMTP server port. Default: 587
+    // SMTP server port (required)
     "port": 587,
     
-    // SMTP username for authentication. Leave empty for no authentication.
+    // SMTP username for authentication (required)
     "username": "your-email@gmail.com",
     
-    // SMTP password for authentication. Leave empty for no authentication.
+    // SMTP password for authentication (required)
     "password": "your-app-password",
     
-    // Email address that will appear as the sender.
+    // Email address that will appear as the sender (required)
     "fromEmail": "noreply@yourdomain.com",
     
-    // Display name for the sender email address.
+    // Display name for the sender email address (required)
     "fromName": "Your Application Name",
     
-    // Whether to use TLS for SMTP connection. Default: true
-    "useTls": true,
+    // Whether to use TLS for SMTP connection (required)
+    "useTls": true
+  },
+  
+  // Email Rate Limiting Configuration
+  // Email rate limiting configuration to prevent abuse.
+  // Defaults are provided but can be overridden.
+  "emailRateLimit": {
+    // Maximum number of emails that can be sent per day. Default: 1000
+    "maxEmailsPerDay": 1000,
     
-    // Rate Limiting Configuration
-    // Email rate limiting configuration to prevent abuse.
-    "rateLimit": {
-      // Maximum number of emails that can be sent per day. Default: 1000
-      "maxEmailsPerDay": 1000,
-      
-      // Maximum number of emails that can be sent to the same address per day. Default: 5
-      "maxEmailsPerAddress": 5,
-      
-      // Duration to wait after rate limit is hit before allowing more emails. 
-      // Format: minutes (e.g., 5, 60). Default: 5
-      "backoffPeriod": 5,
-      
-      // Duration to block an address after hitting rate limit. 
-      // Format: hours (e.g., 1, 24). Default: 24
-      "blockPeriod": 24
-    }
+    // Maximum number of emails that can be sent to the same address per day. Default: 5
+    "maxEmailsPerAddress": 5,
+    
+    // Duration to wait after rate limit is hit before allowing more emails. 
+    // Format: minutes (e.g., 5, 60). Default: 5
+    "backoffPeriod": 5,
+    
+    // Duration to block an address after hitting rate limit. 
+    // Format: hours (e.g., 1, 24). Default: 24
+    "blockPeriod": 24
   },
   
   // Development/Testing Email Configuration

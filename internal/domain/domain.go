@@ -35,6 +35,7 @@ type Configuration struct {
 	RegisteredClients         map[ClientId]Client
 	JwtConfig                 JwtConfiguration
 	SMTPConfig                SMTPConfiguration
+	EmailRateLimitConfig      EmailRateLimitConfiguration
 	CleanupConfig             CleanupConfiguration
 	MockEmailDemoServerURL    string
 	AltchaConfig              AltchaConfiguration
@@ -48,12 +49,13 @@ type SMTPConfiguration struct {
 	FromEmail string
 	FromName  string
 	UseTLS    bool
-	RateLimit struct {
-		MaxEmailsPerDay     int           `json:"maxEmailsPerDay"`
-		MaxEmailsPerAddress int           `json:"maxEmailsPerAddress"`
-		BackoffPeriod       time.Duration `json:"backoffPeriod"`
-		BlockPeriod         time.Duration `json:"blockPeriod"`
-	} `json:"rateLimit"`
+}
+
+type EmailRateLimitConfiguration struct {
+	MaxEmailsPerDay     int           `json:"maxEmailsPerDay"`
+	MaxEmailsPerAddress int           `json:"maxEmailsPerAddress"`
+	BackoffPeriod       time.Duration `json:"backoffPeriod"`
+	BlockPeriod         time.Duration `json:"blockPeriod"`
 }
 
 type CleanupConfiguration struct {

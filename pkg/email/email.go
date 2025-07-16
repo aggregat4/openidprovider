@@ -16,14 +16,16 @@ type EmailSender interface {
 }
 
 type EmailService struct {
-	config domain.SMTPConfiguration
-	store  *repository.Store
+	smtpConfig domain.SMTPConfiguration
+	rateConfig domain.EmailRateLimitConfiguration
+	store      *repository.Store
 }
 
-func NewEmailService(config domain.SMTPConfiguration, store *repository.Store) *EmailService {
+func NewEmailService(smtpConfig domain.SMTPConfiguration, rateConfig domain.EmailRateLimitConfiguration, store *repository.Store) *EmailService {
 	return &EmailService{
-		config: config,
-		store:  store,
+		smtpConfig: smtpConfig,
+		rateConfig: rateConfig,
+		store:      store,
 	}
 }
 
@@ -36,7 +38,7 @@ func (s *EmailService) checkRateLimits(email, emailType string) error {
 
 	if tracking != nil && tracking.Blocked {
 		// Calculate if block period has expired
-		blockExpiresAt := time.Unix(tracking.BlockedAt, 0).Add(s.config.RateLimit.BlockPeriod)
+		blockExpiresAt := time.Unix(tracking.BlockedAt, 0).Add(s.rateConfig.BlockPeriod)
 		if time.Now().Before(blockExpiresAt) {
 			return fmt.Errorf("email address is temporarily blocked")
 		}
@@ -53,16 +55,16 @@ func (s *EmailService) checkRateLimits(email, emailType string) error {
 	for _, count := range dailyCounts {
 		totalDaily += count
 	}
-	if totalDaily >= s.config.RateLimit.MaxEmailsPerDay {
+	if totalDaily >= s.rateConfig.MaxEmailsPerDay {
 		return fmt.Errorf("daily email limit reached")
 	}
 
 	// Check per-address limit and backoff
 	if tracking != nil {
 		// Check if we've exceeded the maximum attempts in the last 24 hours
-		if tracking.Attempts >= s.config.RateLimit.MaxEmailsPerAddress {
+		if tracking.Attempts >= s.rateConfig.MaxEmailsPerAddress {
 			// Block the address
-			err = s.store.BlockEmailAddress(email, emailType, time.Now().Add(s.config.RateLimit.BlockPeriod))
+			err = s.store.BlockEmailAddress(email, emailType, time.Now().Add(s.rateConfig.BlockPeriod))
 			if err != nil {
 				return fmt.Errorf("failed to block email address: %w", err)
 			}
@@ -71,7 +73,7 @@ func (s *EmailService) checkRateLimits(email, emailType string) error {
 
 		// Calculate exponential backoff
 		lastAttempt := time.Unix(tracking.LastAttempt, 0)
-		backoffDuration := s.config.RateLimit.BackoffPeriod * time.Duration(1<<uint(tracking.Attempts-1)) // 2^(attempts-1) * base period
+		backoffDuration := s.rateConfig.BackoffPeriod * time.Duration(1<<uint(tracking.Attempts-1)) // 2^(attempts-1) * base period
 		if time.Since(lastAttempt) < backoffDuration {
 			return fmt.Errorf("please wait before requesting another email")
 		}
@@ -109,7 +111,7 @@ func (s *EmailService) createEmailMessage(toEmail, subject, plainTextContent, ht
 	// Create multipart email with both plain text and HTML
 	boundary := "boundary123456789"
 
-	message := fmt.Sprintf("From: %s <%s>\r\n", s.config.FromName, s.config.FromEmail)
+	message := fmt.Sprintf("From: %s <%s>\r\n", s.smtpConfig.FromName, s.smtpConfig.FromEmail)
 	message += fmt.Sprintf("To: %s\r\n", toEmail)
 	message += fmt.Sprintf("Subject: %s\r\n", subject)
 	message += "MIME-Version: 1.0\r\n"
@@ -136,17 +138,17 @@ func (s *EmailService) createEmailMessage(toEmail, subject, plainTextContent, ht
 }
 
 func (s *EmailService) sendViaSMTP(toEmail string, message []byte) error {
-	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
+	addr := fmt.Sprintf("%s:%d", s.smtpConfig.Host, s.smtpConfig.Port)
 
 	var auth smtp.Auth
-	if s.config.Username != "" && s.config.Password != "" {
-		auth = smtp.PlainAuth("", s.config.Username, s.config.Password, s.config.Host)
+	if s.smtpConfig.Username != "" && s.smtpConfig.Password != "" {
+		auth = smtp.PlainAuth("", s.smtpConfig.Username, s.smtpConfig.Password, s.smtpConfig.Host)
 	}
 
-	if s.config.UseTLS {
+	if s.smtpConfig.UseTLS {
 		// Use TLS
 		tlsConfig := &tls.Config{
-			ServerName: s.config.Host,
+			ServerName: s.smtpConfig.Host,
 		}
 
 		conn, err := tls.Dial("tcp", addr, tlsConfig)
@@ -155,7 +157,7 @@ func (s *EmailService) sendViaSMTP(toEmail string, message []byte) error {
 		}
 		defer conn.Close()
 
-		client, err := smtp.NewClient(conn, s.config.Host)
+		client, err := smtp.NewClient(conn, s.smtpConfig.Host)
 		if err != nil {
 			return fmt.Errorf("failed to create SMTP client: %w", err)
 		}
@@ -167,7 +169,7 @@ func (s *EmailService) sendViaSMTP(toEmail string, message []byte) error {
 			}
 		}
 
-		if err := client.Mail(s.config.FromEmail); err != nil {
+		if err := client.Mail(s.smtpConfig.FromEmail); err != nil {
 			return fmt.Errorf("failed to set sender: %w", err)
 		}
 
@@ -189,7 +191,7 @@ func (s *EmailService) sendViaSMTP(toEmail string, message []byte) error {
 		return nil
 	} else {
 		// Use non-TLS
-		return smtp.SendMail(addr, auth, s.config.FromEmail, []string{toEmail}, message)
+		return smtp.SendMail(addr, auth, s.smtpConfig.FromEmail, []string{toEmail}, message)
 	}
 }
 
@@ -201,7 +203,7 @@ func (s *EmailService) SendVerificationEmail(toEmail, verificationLink string) e
 If you did not request this verification, please ignore this email.
 
 Best regards,
-%s`, verificationLink, s.config.FromName)
+%s`, verificationLink, s.smtpConfig.FromName)
 
 	htmlContent := fmt.Sprintf(`
 <!DOCTYPE html>
@@ -213,7 +215,7 @@ Best regards,
     <br>
     <p>Best regards,<br>%s</p>
 </body>
-</html>`, verificationLink, s.config.FromName)
+</html>`, verificationLink, s.smtpConfig.FromName)
 
 	return s.sendEmail(toEmail, subject, plainTextContent, htmlContent, "verification")
 }
@@ -226,7 +228,7 @@ func (s *EmailService) SendPasswordResetEmail(toEmail, resetLink string) error {
 If you did not request this password reset, please ignore this email.
 
 Best regards,
-%s`, resetLink, s.config.FromName)
+%s`, resetLink, s.smtpConfig.FromName)
 
 	htmlContent := fmt.Sprintf(`
 <!DOCTYPE html>
@@ -238,7 +240,7 @@ Best regards,
     <br>
     <p>Best regards,<br>%s</p>
 </body>
-</html>`, resetLink, s.config.FromName)
+</html>`, resetLink, s.smtpConfig.FromName)
 
 	return s.sendEmail(toEmail, subject, plainTextContent, htmlContent, "password_reset")
 }
@@ -251,7 +253,7 @@ func (s *EmailService) SendDeleteAccountEmail(toEmail, deleteLink string) error 
 If you did not request to delete your account, please ignore this email.
 
 Best regards,
-%s`, deleteLink, s.config.FromName)
+%s`, deleteLink, s.smtpConfig.FromName)
 
 	htmlContent := fmt.Sprintf(`
 <!DOCTYPE html>
@@ -263,7 +265,7 @@ Best regards,
     <br>
     <p>Best regards,<br>%s</p>
 </body>
-</html>`, deleteLink, s.config.FromName)
+</html>`, deleteLink, s.smtpConfig.FromName)
 
 	return s.sendEmail(toEmail, subject, plainTextContent, htmlContent, "delete_account")
 }

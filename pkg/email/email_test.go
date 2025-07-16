@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewEmailService(t *testing.T) {
-	config := domain.SMTPConfiguration{
+	smtpConfig := domain.SMTPConfiguration{
 		Host:      "localhost",
 		Port:      587,
 		Username:  "test",
@@ -16,32 +16,28 @@ func TestNewEmailService(t *testing.T) {
 		FromEmail: "test@example.com",
 		FromName:  "Test Sender",
 		UseTLS:    true,
-		RateLimit: struct {
-			MaxEmailsPerDay     int           `json:"maxEmailsPerDay"`
-			MaxEmailsPerAddress int           `json:"maxEmailsPerAddress"`
-			BackoffPeriod       time.Duration `json:"backoffPeriod"`
-			BlockPeriod         time.Duration `json:"blockPeriod"`
-		}{
-			MaxEmailsPerDay:     1000,
-			MaxEmailsPerAddress: 5,
-			BackoffPeriod:       5 * time.Minute,
-			BlockPeriod:         24 * time.Hour,
-		},
+	}
+
+	rateConfig := domain.EmailRateLimitConfiguration{
+		MaxEmailsPerDay:     1000,
+		MaxEmailsPerAddress: 5,
+		BackoffPeriod:       5 * time.Minute,
+		BlockPeriod:         24 * time.Hour,
 	}
 
 	store := &repository.Store{}
-	service := NewEmailService(config, store)
+	service := NewEmailService(smtpConfig, rateConfig, store)
 
 	if service == nil {
 		t.Fatal("Expected email service to be created")
 	}
 
-	if service.config.Host != "localhost" {
-		t.Errorf("Expected host to be 'localhost', got '%s'", service.config.Host)
+	if service.smtpConfig.Host != "localhost" {
+		t.Errorf("Expected host to be 'localhost', got '%s'", service.smtpConfig.Host)
 	}
 
-	if service.config.Port != 587 {
-		t.Errorf("Expected port to be 587, got %d", service.config.Port)
+	if service.smtpConfig.Port != 587 {
+		t.Errorf("Expected port to be 587, got %d", service.smtpConfig.Port)
 	}
 }
 
@@ -51,7 +47,7 @@ func TestCreateEmailMessage(t *testing.T) {
 		FromName:  "Test Sender",
 	}
 
-	service := &EmailService{config: config}
+	service := &EmailService{smtpConfig: config}
 
 	toEmail := "recipient@example.com"
 	subject := "Test Subject"
