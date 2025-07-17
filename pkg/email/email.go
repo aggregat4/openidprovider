@@ -31,27 +31,21 @@ func NewEmailService(smtpConfig domain.SMTPConfiguration, rateConfig domain.Emai
 }
 
 func (s *EmailService) checkRateLimits(email, emailType string) error {
-	// Check if email is blocked
 	tracking, err := s.store.GetEmailTracking(email, emailType)
 	if err != nil {
 		return fmt.Errorf("failed to check email tracking: %w", err)
 	}
-
 	if tracking != nil && tracking.Blocked {
-		// Calculate if block period has expired
 		blockExpiresAt := time.Unix(tracking.BlockedAt, 0).Add(s.rateConfig.BlockPeriod)
 		if time.Now().Before(blockExpiresAt) {
 			return fmt.Errorf("email address is temporarily blocked")
 		}
-		// Block period has passed, tracking record will be cleaned up by the cleanup job
 	}
 
-	// Check global daily limit
 	dailyCounts, err := s.store.GetEmailCounts(time.Now().Add(-24 * time.Hour))
 	if err != nil {
 		return fmt.Errorf("failed to get daily email counts: %w", err)
 	}
-
 	totalDaily := 0
 	for _, count := range dailyCounts {
 		totalDaily += count
@@ -64,7 +58,6 @@ func (s *EmailService) checkRateLimits(email, emailType string) error {
 	if tracking != nil {
 		// Check if we've exceeded the maximum attempts in the last 24 hours
 		if tracking.Attempts >= s.rateConfig.MaxEmailsPerAddress {
-			// Block the address
 			err = s.store.BlockEmailAddress(email, emailType, time.Now().Add(s.rateConfig.BlockPeriod))
 			if err != nil {
 				return fmt.Errorf("failed to block email address: %w", err)
@@ -84,27 +77,20 @@ func (s *EmailService) checkRateLimits(email, emailType string) error {
 }
 
 func (s *EmailService) sendEmail(toEmail, subject, plainTextContent, htmlContent string, emailType string) error {
-	// Check rate limits
 	err := s.checkRateLimits(toEmail, emailType)
 	if err != nil {
 		return err
 	}
-
-	// Track the attempt
 	err = s.store.TrackEmailAttempt(toEmail, emailType)
 	if err != nil {
 		return fmt.Errorf("failed to track email attempt: %w", err)
 	}
-
-	// Create email message using go-mail
 	msg := mail.NewMsg()
 	msg.From(s.smtpConfig.FromEmail)
 	msg.To(toEmail)
 	msg.Subject(subject)
 	msg.SetBodyString(mail.TypeTextPlain, plainTextContent)
 	msg.AddAlternativeString(mail.TypeTextHTML, htmlContent)
-
-	// Send email via SMTP
 	err = s.sendViaSMTP(msg)
 	if err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
@@ -114,8 +100,9 @@ func (s *EmailService) sendEmail(toEmail, subject, plainTextContent, htmlContent
 }
 
 func (s *EmailService) sendViaSMTP(msg *mail.Msg) error {
-	// Create client with SMTP configuration
-	client, err := mail.NewClient(s.smtpConfig.Host,
+	client, err := mail.NewClient(
+		s.smtpConfig.Host,
+		mail.WithSMTPAuth(mail.SMTPAuthAutoDiscover), // let go-mail autodiscover the strongest authentication
 		mail.WithPort(s.smtpConfig.Port),
 		mail.WithUsername(s.smtpConfig.Username),
 		mail.WithPassword(s.smtpConfig.Password),
@@ -123,17 +110,13 @@ func (s *EmailService) sendViaSMTP(msg *mail.Msg) error {
 	if err != nil {
 		return fmt.Errorf("failed to create mail client: %w", err)
 	}
-
-	// Configure TLS if required
-	if s.smtpConfig.UseTLS {
-		client.SetTLSPolicy(mail.TLSMandatory)
+	// go-mail has TLS set on by default, we disable it when it is not configured
+	if !s.smtpConfig.UseTLS {
+		client.SetTLSPolicy(mail.NoTLS)
 	}
-
-	// Send the email
 	if err := client.DialAndSendWithContext(context.Background(), msg); err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
-
 	return nil
 }
 
