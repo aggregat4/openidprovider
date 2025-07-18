@@ -1,6 +1,7 @@
 package main
 
 import (
+	"aggregat4/openidprovider/internal/config"
 	"aggregat4/openidprovider/internal/domain"
 	"context"
 	"flag"
@@ -8,11 +9,6 @@ import (
 	"log"
 
 	"github.com/aggregat4/go-baselib/lang"
-	"github.com/kirsle/configdir"
-	"github.com/knadh/koanf/parsers/json"
-	"github.com/knadh/koanf/providers/file"
-	"github.com/knadh/koanf/v2"
-
 	"github.com/wneessen/go-mail"
 )
 
@@ -50,29 +46,16 @@ func main() {
 	}
 
 	// Read configuration
-	defaultConfigLocation := configdir.LocalConfig("openidprovider") + "/openidprovider.json"
-	configFile := lang.IfElse(configFileLocation == "", defaultConfigLocation, configFileLocation)
+	configFile := lang.IfElse(configFileLocation == "", config.GetDefaultConfigPath(), configFileLocation)
 
-	smtpConfig, err := readSMTPConfig(configFile)
+	k, err := config.LoadConfigFile(configFile)
 	if err != nil {
-		log.Fatalf("Error reading configuration: %v", err)
+		log.Fatalf("Error loading configuration: %v", err)
 	}
 
-	// Validate SMTP configuration
-	if smtpConfig.Host == "" {
-		log.Fatal("SMTP host is not configured. Please check your configuration file.")
-	}
-	if smtpConfig.Username == "" {
-		log.Fatal("SMTP username is not configured. Please check your configuration file.")
-	}
-	if smtpConfig.Password == "" {
-		log.Fatal("SMTP password is not configured. Please check your configuration file.")
-	}
-	if smtpConfig.FromEmail == "" {
-		log.Fatal("SMTP from email is not configured. Please check your configuration file.")
-	}
-	if smtpConfig.FromName == "" {
-		log.Fatal("SMTP from name is not configured. Please check your configuration file.")
+	smtpConfig, err := config.ReadSMTPConfig(k)
+	if err != nil {
+		log.Fatalf("Error reading SMTP configuration: %v", err)
 	}
 
 	fmt.Printf("Configuration loaded from: %s\n", configFile)
@@ -91,55 +74,6 @@ func main() {
 	}
 
 	fmt.Printf("✅ Test email sent successfully to %s\n", recipientEmail)
-}
-
-func readSMTPConfig(configFile string) (*domain.SMTPConfiguration, error) {
-	k := koanf.New(".")
-
-	// Load configuration file
-	if err := k.Load(file.Provider(configFile), json.Parser()); err != nil {
-		return nil, fmt.Errorf("error loading config file %s: %w", configFile, err)
-	}
-
-	// Read SMTP configuration
-	smtpConfig := domain.SMTPConfiguration{}
-	if k.Exists("smtp.host") {
-		smtpConfig.Host = k.String("smtp.host")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.host")
-	}
-	if k.Exists("smtp.port") {
-		smtpConfig.Port = k.Int("smtp.port")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.port")
-	}
-	if k.Exists("smtp.username") {
-		smtpConfig.Username = k.String("smtp.username")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.username")
-	}
-	if k.Exists("smtp.password") {
-		smtpConfig.Password = k.String("smtp.password")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.password")
-	}
-	if k.Exists("smtp.fromEmail") {
-		smtpConfig.FromEmail = k.String("smtp.fromEmail")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.fromEmail")
-	}
-	if k.Exists("smtp.fromName") {
-		smtpConfig.FromName = k.String("smtp.fromName")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.fromName")
-	}
-	if k.Exists("smtp.useTls") {
-		smtpConfig.UseTLS = k.Bool("smtp.useTls")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.useTls")
-	}
-
-	return &smtpConfig, nil
 }
 
 func sendTestEmail(smtpConfig *domain.SMTPConfiguration, recipientEmail string) error {

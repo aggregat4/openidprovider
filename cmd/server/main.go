@@ -1,6 +1,7 @@
 package main
 
 import (
+	"aggregat4/openidprovider/internal/config"
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
@@ -13,10 +14,6 @@ import (
 
 	"github.com/aggregat4/go-baselib/crypto"
 	"github.com/aggregat4/go-baselib/lang"
-	"github.com/kirsle/configdir"
-	"github.com/knadh/koanf/parsers/json"
-	"github.com/knadh/koanf/providers/file"
-	"github.com/knadh/koanf/v2"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -28,8 +25,7 @@ func main() {
 	flag.StringVar(&configFileLocation, "config", "", "The location of the configuration file if you do not want to default to the standard location")
 	flag.Parse()
 
-	defaultConfigLocation := configdir.LocalConfig("openidprovider") + "/openidprovider.json"
-	config := readConfig(lang.IfElse(configFileLocation == "", defaultConfigLocation, configFileLocation))
+	config := readConfig(lang.IfElse(configFileLocation == "", config.GetDefaultConfigPath(), configFileLocation))
 
 	var store repository.Store
 	err := store.InitAndVerifyDb(repository.CreateFileDbUrl(config.DatabaseFilename))
@@ -57,10 +53,11 @@ func main() {
 }
 
 func readConfig(configFileLocation string) domain.Configuration {
-	var k = koanf.New(".")
-	if err := k.Load(file.Provider(configFileLocation), json.Parser()); err != nil {
+	k, err := config.LoadConfigFile(configFileLocation)
+	if err != nil {
 		log.Fatalf("error loading config: %v", err)
 	}
+
 	databaseFilename := k.String("databasefilename")
 	if databaseFilename == "" {
 		log.Fatalf("Database filename is required in the configuration")
@@ -199,42 +196,10 @@ func readConfig(configFileLocation string) domain.Configuration {
 		altchaConfig.SaltLength = k.Int("altcha.saltLength")
 	}
 
-	// Read SMTP configuration (no defaults - user must provide all values)
-	smtpConfig := domain.SMTPConfiguration{}
-	if k.Exists("smtp.host") {
-		smtpConfig.Host = k.String("smtp.host")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.host")
-	}
-	if k.Exists("smtp.port") {
-		smtpConfig.Port = k.Int("smtp.port")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.port")
-	}
-	if k.Exists("smtp.username") {
-		smtpConfig.Username = k.String("smtp.username")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.username")
-	}
-	if k.Exists("smtp.password") {
-		smtpConfig.Password = k.String("smtp.password")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.password")
-	}
-	if k.Exists("smtp.fromEmail") {
-		smtpConfig.FromEmail = k.String("smtp.fromEmail")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.fromEmail")
-	}
-	if k.Exists("smtp.fromName") {
-		smtpConfig.FromName = k.String("smtp.fromName")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.fromName")
-	}
-	if k.Exists("smtp.useTls") {
-		smtpConfig.UseTLS = k.Bool("smtp.useTls")
-	} else {
-		log.Fatal("Missing mandatory SMTP setting: smtp.useTls")
+	// Read SMTP configuration using shared utility
+	smtpConfig, err := config.ReadSMTPConfig(k)
+	if err != nil {
+		log.Fatalf("error reading SMTP config: %v", err)
 	}
 
 	return domain.Configuration{
@@ -250,7 +215,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 			PrivateKey:             privateKey,
 			PublicKey:              publicKey,
 		},
-		SMTPConfig:             smtpConfig,
+		SMTPConfig:             *smtpConfig,
 		EmailRateLimitConfig:   emailRateLimitConfig,
 		CleanupConfig:          cleanupConfig,
 		MockEmailDemoServerURL: mockEmailDemoServerURL,
