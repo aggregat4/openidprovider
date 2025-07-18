@@ -35,8 +35,8 @@ func (s *EmailService) checkRateLimits(email, emailType string) error {
 	if err != nil {
 		return fmt.Errorf("failed to check email tracking: %w", err)
 	}
-	if tracking != nil && tracking.Blocked {
-		blockExpiresAt := time.Unix(tracking.BlockedAt, 0).Add(s.rateConfig.BlockPeriod)
+	if tracking != nil && tracking.Blocked && tracking.BlockedAt.Valid {
+		blockExpiresAt := time.Unix(tracking.BlockedAt.Int64, 0).Add(s.rateConfig.BlockPeriod)
 		if time.Now().Before(blockExpiresAt) {
 			return fmt.Errorf("email address is temporarily blocked")
 		}

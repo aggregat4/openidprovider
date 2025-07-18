@@ -221,7 +221,7 @@ type EmailTracking struct {
 	LastAttempt  int64
 	Attempts     int
 	Blocked      bool
-	BlockedAt    int64
+	BlockedAt    sql.NullInt64
 }
 
 func CreateFileDbUrl(dbName string) string {
