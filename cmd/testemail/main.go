@@ -105,24 +105,38 @@ func readSMTPConfig(configFile string) (*domain.SMTPConfiguration, error) {
 	smtpConfig := domain.SMTPConfiguration{}
 	if k.Exists("smtp.host") {
 		smtpConfig.Host = k.String("smtp.host")
+	} else {
+		log.Fatal("Missing mandatory SMTP setting: smtp.host")
 	}
 	if k.Exists("smtp.port") {
 		smtpConfig.Port = k.Int("smtp.port")
+	} else {
+		log.Fatal("Missing mandatory SMTP setting: smtp.port")
 	}
 	if k.Exists("smtp.username") {
 		smtpConfig.Username = k.String("smtp.username")
+	} else {
+		log.Fatal("Missing mandatory SMTP setting: smtp.username")
 	}
 	if k.Exists("smtp.password") {
 		smtpConfig.Password = k.String("smtp.password")
+	} else {
+		log.Fatal("Missing mandatory SMTP setting: smtp.password")
 	}
 	if k.Exists("smtp.fromEmail") {
 		smtpConfig.FromEmail = k.String("smtp.fromEmail")
+	} else {
+		log.Fatal("Missing mandatory SMTP setting: smtp.fromEmail")
 	}
 	if k.Exists("smtp.fromName") {
 		smtpConfig.FromName = k.String("smtp.fromName")
+	} else {
+		log.Fatal("Missing mandatory SMTP setting: smtp.fromName")
 	}
 	if k.Exists("smtp.useTls") {
 		smtpConfig.UseTLS = k.Bool("smtp.useTls")
+	} else {
+		log.Fatal("Missing mandatory SMTP setting: smtp.useTls")
 	}
 
 	return &smtpConfig, nil
