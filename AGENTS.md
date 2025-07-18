@@ -1,8 +1,9 @@
 # Commands
 - Build: `./scripts/build.sh`
-- Lint: `./scripts/lint.sh`
+- Lint: `./scripts/lint.sh` (uses golangci-lint)
 - Test: `./scripts/test.sh`
 - Single test: `go test -run TestName ./path/to/package`
+- Coverage: `go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html`
 
 # Style
 - Use standard Go formatting (`gofmt`)
