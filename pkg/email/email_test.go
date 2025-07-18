@@ -32,7 +32,7 @@ func TestNewEmailService(t *testing.T) {
 	service := NewEmailService(smtpConfig, rateConfig, store)
 
 	if service == nil {
-		t.Error("Expected EmailService to be created, got nil")
+		t.Fatal("Expected EmailService to be created, got nil")
 	}
 
 	if service.smtpConfig.Host != smtpConfig.Host {
@@ -95,7 +95,7 @@ func TestEmailTrackingWithNullBlockedAt(t *testing.T) {
 	}
 
 	if tracking == nil {
-		t.Error("Expected email tracking to be returned, got nil")
+		t.Fatal("Expected email tracking to be returned, got nil")
 	}
 
 	// Verify that the tracking has the expected values
