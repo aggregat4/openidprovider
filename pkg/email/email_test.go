@@ -45,9 +45,6 @@ func TestNewEmailService(t *testing.T) {
 }
 
 func TestEmailTrackingWithNullBlockedAt(t *testing.T) {
-	// This test verifies that the email service can handle NULL blocked_at values
-	// without causing SQL scan errors
-
 	smtpConfig := domain.SMTPConfiguration{
 		Host:      "smtp.example.com",
 		Port:      587,
@@ -76,7 +73,6 @@ func TestEmailTrackingWithNullBlockedAt(t *testing.T) {
 	service := NewEmailService(smtpConfig, rateConfig, store)
 
 	// Test that we can check rate limits without errors
-	// This would have failed before our fix due to NULL blocked_at values
 	err = service.checkRateLimits("test@example.com", "verification")
 	if err != nil {
 		t.Errorf("Expected no error when checking rate limits, got: %v", err)
