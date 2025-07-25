@@ -8,7 +8,6 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/gorilla/sessions v1.4.0
 	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
-	github.com/knadh/koanf/parsers/json v0.1.0
 	github.com/knadh/koanf/providers/file v1.1.2
 	github.com/knadh/koanf/v2 v2.1.2
 	github.com/stretchr/testify v1.10.0
@@ -53,4 +52,9 @@ require (
 	github.com/wneessen/go-mail v0.6.2
 )
 
-require github.com/labstack/echo/v4 v4.13.4 // indirect
+require github.com/hjson/hjson-go/v4 v4.4.0 // indirect
+
+require (
+	github.com/knadh/koanf/parsers/hjson v1.0.0
+	github.com/labstack/echo/v4 v4.13.4 // indirect
+)

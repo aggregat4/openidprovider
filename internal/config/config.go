@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kirsle/configdir"
-	"github.com/knadh/koanf/parsers/json"
+	"github.com/knadh/koanf/parsers/hjson"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 )
@@ -18,7 +18,7 @@ func GetDefaultConfigPath() string {
 // LoadConfigFile loads a koanf configuration from the specified file
 func LoadConfigFile(configFile string) (*koanf.Koanf, error) {
 	k := koanf.New(".")
-	if err := k.Load(file.Provider(configFile), json.Parser()); err != nil {
+	if err := k.Load(file.Provider(configFile), hjson.Parser()); err != nil {
 		return nil, fmt.Errorf("error loading config file %s: %w", configFile, err)
 	}
 	return k, nil
