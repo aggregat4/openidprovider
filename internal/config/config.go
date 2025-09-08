@@ -10,12 +10,10 @@ import (
 	"github.com/knadh/koanf/v2"
 )
 
-// GetDefaultConfigPath returns the default configuration file path
 func GetDefaultConfigPath() string {
 	return configdir.LocalConfig("openidprovider") + "/openidprovider.json"
 }
 
-// LoadConfigFile loads a koanf configuration from the specified file
 func LoadConfigFile(configFile string) (*koanf.Koanf, error) {
 	k := koanf.New(".")
 	if err := k.Load(file.Provider(configFile), hjson.Parser()); err != nil {
@@ -24,7 +22,6 @@ func LoadConfigFile(configFile string) (*koanf.Koanf, error) {
 	return k, nil
 }
 
-// ReadSMTPConfig reads SMTP configuration from koanf and validates all required fields
 func ReadSMTPConfig(k *koanf.Koanf) (*domain.SMTPConfiguration, error) {
 	smtpConfig := domain.SMTPConfiguration{}
 
