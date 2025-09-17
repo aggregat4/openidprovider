@@ -50,12 +50,12 @@ func main() {
 
 	k, err := config.LoadConfigFile(configFile)
 	if err != nil {
-		logging.Fatal(logger, "Error loading configuration: %v", err)
+		logging.Fatal(logger, "Error loading configuration: {Error}", err)
 	}
 
 	smtpConfig, err := config.ReadSMTPConfig(k)
 	if err != nil {
-		logging.Fatal(logger, "Error reading SMTP configuration: %v", err)
+		logging.Fatal(logger, "Error reading SMTP configuration: {Error}", err)
 	}
 
 	fmt.Printf("Configuration loaded from: %s\n", configFile)
@@ -70,7 +70,7 @@ func main() {
 	fmt.Println("Sending test email...")
 	err = sendTestEmail(smtpConfig, recipientEmail)
 	if err != nil {
-		logging.Fatal(logger, "Error sending email: %v", err)
+		logging.Fatal(logger, "Error sending email: {Error}", err)
 	}
 
 	fmt.Printf("✅ Test email sent successfully to %s\n", recipientEmail)

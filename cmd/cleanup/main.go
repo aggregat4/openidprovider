@@ -20,14 +20,14 @@ func main() {
 	// Read configuration
 	configBytes, err := os.ReadFile(*configFile)
 	if err != nil {
-		logging.Error(logger, "Failed to read configuration file: %v", err)
+		logging.Error(logger, "Failed to read configuration file: {Error}", err)
 		os.Exit(1)
 	}
 
 	var config domain.Configuration
 	err = json.Unmarshal(configBytes, &config)
 	if err != nil {
-		logging.Error(logger, "Failed to parse configuration file: %v", err)
+		logging.Error(logger, "Failed to parse configuration file: {Error}", err)
 		os.Exit(1)
 	}
 
@@ -35,7 +35,7 @@ func main() {
 	store := &repository.Store{}
 	err = store.InitAndVerifyDb(repository.CreateFileDbUrl(config.DatabaseFilename))
 	if err != nil {
-		logging.Error(logger, "Failed to initialize database: %v", err)
+		logging.Error(logger, "Failed to initialize database: {Error}", err)
 		os.Exit(1)
 	}
 	defer store.Close()
@@ -43,9 +43,9 @@ func main() {
 	// Delete expired verification tokens
 	err = store.DeleteExpiredVerificationTokens()
 	if err != nil {
-		logging.Error(logger, "Failed to delete expired verification tokens: %v", err)
+		logging.Error(logger, "Failed to delete expired verification tokens: {Error}", err)
 		os.Exit(1)
 	}
 
-	logging.Info(logger, "Successfully cleaned up expired verification tokens timestamp=%d", time.Now().Unix())
+	logging.Info(logger, "Successfully cleaned up expired verification tokens timestamp={Timestamp}", time.Now().Unix())
 }

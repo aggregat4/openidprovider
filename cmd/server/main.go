@@ -29,14 +29,14 @@ func main() {
 	var store repository.Store
 	err := store.InitAndVerifyDb(repository.CreateFileDbUrl(config.DatabaseFilename))
 	if err != nil {
-		logging.Fatal(logger, "Error initializing database: %s", err)
+		logging.Fatal(logger, "Error initializing database: {Error}", err)
 	}
 	defer store.Close()
 
 	// Initialize email sender
 	var emailSender email.EmailSender
 	if config.MockEmailDemoServerURL != "" {
-		logging.Info(logger, "Using mock email sender with demo server URL %s", config.MockEmailDemoServerURL)
+		logging.Info(logger, "Using mock email sender with demo server URL {DemoServerURL}", config.MockEmailDemoServerURL)
 		emailSender = email.NewMockEmailSender(config.MockEmailDemoServerURL)
 	} else {
 		logging.Info(logger, "Using SMTP email sender")
@@ -54,7 +54,7 @@ func main() {
 func readConfig(configFileLocation string) domain.Configuration {
 	k, err := config.LoadConfigFile(configFileLocation)
 	if err != nil {
-		logging.Fatal(logger, "error loading config: %v", err)
+		logging.Fatal(logger, "Error loading config: {Error}", err)
 	}
 
 	databaseFilename := k.String("databasefilename")
@@ -83,7 +83,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 	}
 	privateKey, err := crypto.ReadRSAPrivateKey(privateKeyPemFilename)
 	if err != nil {
-		logging.Fatal(logger, "Error reading private key file: %s", err)
+		logging.Fatal(logger, "Error reading private key file: {Error}", err)
 	}
 
 	publicKeyPemFilename := k.String("publickeypemfilename")
@@ -92,7 +92,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 	}
 	publicKey, err := crypto.ReadRSAPublicKey(publicKeyPemFilename)
 	if err != nil {
-		logging.Fatal(logger, "Error reading public key file: %s", err)
+		logging.Fatal(logger, "Error reading public key file: {Error}", err)
 	}
 
 	configuredClients := k.Get("registeredclients")
@@ -198,7 +198,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 	// Read SMTP configuration using shared utility
 	smtpConfig, err := config.ReadSMTPConfig(k)
 	if err != nil {
-		logging.Fatal(logger, "error reading SMTP config: %v", err)
+		logging.Fatal(logger, "Error reading SMTP config: {Error}", err)
 	}
 
 	return domain.Configuration{

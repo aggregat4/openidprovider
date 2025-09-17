@@ -29,20 +29,20 @@ func main() {
 		var store repository.Store
 		err := store.InitAndVerifyDb(repository.CreateFileDbUrl(dbName))
 		if err != nil {
-			logging.Fatal(logger, "Error initializing database: %s", err)
+			logging.Fatal(logger, "Error initializing database: {Error}", err)
 		}
 		defer store.Close()
 		hashedPassword, err := crypto.HashPassword(initdbPassword)
 		if err != nil {
-			logging.Fatal(logger, "Error hashing password: %s", err)
+			logging.Fatal(logger, "Error hashing password: {Error}", err)
 		}
 		err = store.CreateUser(initdbUsername, hashedPassword)
 		if err != nil {
-			logging.Fatal(logger, "Error initializing database: %s", err)
+			logging.Fatal(logger, "Error initializing database: {Error}", err)
 		}
 		err = store.VerifyUser(initdbUsername)
 		if err != nil {
-			logging.Fatal(logger, "Error verifying user: %s", err)
+			logging.Fatal(logger, "Error verifying user: {Error}", err)
 		}
 	} else {
 		logging.Fatal(logger, "Require a username and password to initialize a database with a valid user")

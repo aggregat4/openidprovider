@@ -89,7 +89,7 @@ func (controller *Controller) JwksHandler(w http.ResponseWriter, r *http.Request
 
 	jwksBytes, err := json.MarshalIndent(jwks, "", "  ")
 	if err != nil {
-		logging.Error(handlersLogger, "Failed to marshal JWKS: %v", err)
+		logging.Error(handlersLogger, "Failed to marshal JWKS: {Error}", err)
 		stringResponse(w, http.StatusInternalServerError, "Internal error")
 		return
 	}
@@ -115,7 +115,7 @@ func (controller *Controller) OpenIdConfigurationHandler(w http.ResponseWriter, 
 	for _, scope := range scopes {
 		scopeClaims, err := controller.Store.ListScopeClaims(scope.Name)
 		if err != nil {
-			logging.Error(handlersLogger, "Failed to get scope claims: %v", err)
+			logging.Error(handlersLogger, "Failed to get scope claims: {Error}", err)
 			stringResponse(w, http.StatusInternalServerError, "Internal error")
 			return
 		}
@@ -357,7 +357,7 @@ func (controller *Controller) LoginHandler(w http.ResponseWriter, r *http.Reques
 
 // handleRegularLogin handles regular web login
 func (controller *Controller) handleRegularLogin(w http.ResponseWriter, r *http.Request, username, password string) {
-	logging.Info(handlersLogger, "handleRegularLogin called username=%s", username)
+	logging.Info(handlersLogger, "handleRegularLogin called username={Username}", username)
 	// Basic validation
 	if username == "" || password == "" {
 		stringResponse(w, http.StatusBadRequest, "Missing credentials")
@@ -367,7 +367,7 @@ func (controller *Controller) handleRegularLogin(w http.ResponseWriter, r *http.
 	// Validate credentials
 	valid, err := controller.validateCredentials(username, password)
 	if err != nil {
-		logging.Error(handlersLogger, "Error validating credentials: %v", err)
+		logging.Error(handlersLogger, "Error validating credentials: {Error}", err)
 		stringResponse(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
@@ -382,7 +382,7 @@ func (controller *Controller) handleRegularLogin(w http.ResponseWriter, r *http.
 
 // handleOAuthLogin handles OAuth login flow
 func (controller *Controller) handleOAuthLogin(w http.ResponseWriter, r *http.Request, clientId, redirectUri, state, scopes, username, password string) {
-	logging.Info(handlersLogger, "handleOAuthLogin called clientId=%s username=%s", clientId, username)
+	logging.Info(handlersLogger, "handleOAuthLogin called clientId={ClientID} username={Username}", clientId, username)
 	// Create redirect URL for error responses
 	redirectUrl, err := url.Parse(redirectUri)
 	if err != nil {
@@ -399,7 +399,7 @@ func (controller *Controller) handleOAuthLogin(w http.ResponseWriter, r *http.Re
 	// Validate credentials
 	valid, err := controller.validateCredentials(username, password)
 	if err != nil {
-		logging.Error(handlersLogger, "Error validating credentials: %v", err)
+		logging.Error(handlersLogger, "Error validating credentials: {Error}", err)
 		sendInternalOAuthError(w, r, err, redirectUrl, state)
 		return
 	}
@@ -484,7 +484,7 @@ func (controller *Controller) ShowRegisterPageHandler(w http.ResponseWriter, r *
 
 	altchaChallenge, err := controller.CaptchaVerifier.CreateChallenge()
 	if err != nil {
-		logging.Error(handlersLogger, "Failed to create ALTCHA challenge: %v", err)
+		logging.Error(handlersLogger, "Failed to create ALTCHA challenge: {Error}", err)
 		altchaChallenge = ""
 	}
 
@@ -508,7 +508,7 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 	altchaSolution := getFormValue(r, "altcha")
 
 	logging.Info(handlersLogger,
-		"register handler form values email=%s password_length=%d confirmPassword_length=%d altcha_solution=%s",
+		"register handler form values email={Email} password_length={PasswordLength} confirmPassword_length={ConfirmPasswordLength} altcha_solution={AltchaSolution}",
 		email,
 		len(password),
 		len(confirmPassword),
@@ -518,11 +518,11 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 	// Generate ALTCHA challenge for all responses
 	altchaChallenge, err := controller.CaptchaVerifier.CreateChallenge()
 	if err != nil {
-		logging.Error(handlersLogger, "Failed to create ALTCHA challenge: %v", err)
+		logging.Error(handlersLogger, "Failed to create ALTCHA challenge: {Error}", err)
 		controller.renderRegisterError(w, email, "Internal error", "", http.StatusInternalServerError)
 		return
 	}
-	logging.Info(handlersLogger, "register handler generated ALTCHA challenge challenge=%s", altchaChallenge)
+	logging.Info(handlersLogger, "register handler generated ALTCHA challenge challenge={Challenge}", altchaChallenge)
 
 	// Basic validation
 	if email == "" || password == "" || confirmPassword == "" {
@@ -553,7 +553,7 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 	// Verify the ALTCHA solution
 	ok, err := controller.CaptchaVerifier.VerifySolution(altchaSolution)
 	if err != nil {
-		logging.Error(handlersLogger, "register handler ALTCHA verification error: %v", err)
+		logging.Error(handlersLogger, "register handler ALTCHA verification error: {Error}", err)
 		controller.renderRegisterError(w, email, "Captcha verification failed", altchaChallenge, http.StatusBadRequest)
 		return
 	}
@@ -565,16 +565,16 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 	logging.Info(handlersLogger, "register handler ALTCHA verification successful")
 
 	// Check if user already exists
-	logging.Info(handlersLogger, "register handler checking if user exists email=%s", email)
+	logging.Info(handlersLogger, "register handler checking if user exists email={Email}", email)
 	existingUser, err := controller.Store.FindUser(email)
 	if err != nil {
-		logging.Error(handlersLogger, "register handler error finding user: %v", err)
+		logging.Error(handlersLogger, "register handler error finding user: {Error}", err)
 		controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
 	if existingUser != nil {
-		logging.Info(handlersLogger, "register handler user exists email=%s verified=%t", email, existingUser.Verified)
+		logging.Info(handlersLogger, "register handler user exists email={Email} verified={Verified}", email, existingUser.Verified)
 
 		// If user is already verified, redirect to login
 		if existingUser.Verified {
@@ -587,14 +587,14 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 		logging.Info(handlersLogger, "register handler checking if should resend verification for unverified user")
 		lastAttempt, err := controller.Store.GetLastRegistrationAttempt(email)
 		if err != nil {
-			logging.Error(handlersLogger, "register handler error getting last registration attempt: %v", err)
+			logging.Error(handlersLogger, "register handler error getting last registration attempt: {Error}", err)
 			controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
 		// If last attempt was less than 5 minutes ago, show debounce message
 		if time.Now().Unix()-lastAttempt < 300 {
-			logging.Info(handlersLogger, "register handler email debouncing last_attempt=%d time_since=%d", lastAttempt, time.Now().Unix()-lastAttempt)
+			logging.Info(handlersLogger, "register handler email debouncing last_attempt={LastAttempt} time_since={TimeSince}", lastAttempt, time.Now().Unix()-lastAttempt)
 			controller.renderRegisterError(w, email, "Please wait a few minutes before trying again", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
@@ -602,14 +602,14 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 		// Check for too many failed verification attempts
 		failedAttempts, err := controller.Store.GetFailedVerificationAttempts(email)
 		if err != nil {
-			logging.Error(handlersLogger, "register handler error getting failed verification attempts: %v", err)
+			logging.Error(handlersLogger, "register handler error getting failed verification attempts: {Error}", err)
 			controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
 		// Block after 5 failed attempts
 		if failedAttempts >= 5 {
-			logging.Info(handlersLogger, "register handler too many failed verification attempts failed_attempts=%d", failedAttempts)
+			logging.Info(handlersLogger, "register handler too many failed verification attempts failed_attempts={FailedAttempts}", failedAttempts)
 			controller.renderRegisterError(w, email, "Too many failed verification attempts. Please try again later.", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
@@ -617,14 +617,14 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 		// Check for too many active tokens
 		activeTokens, err := controller.Store.GetActiveVerificationTokensCount(email)
 		if err != nil {
-			logging.Error(handlersLogger, "register handler error getting active tokens count: %v", err)
+			logging.Error(handlersLogger, "register handler error getting active tokens count: {Error}", err)
 			controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
 		// Maximum 3 active tokens per email
 		if activeTokens >= 3 {
-			logging.Info(handlersLogger, "register handler too many active tokens active_tokens=%d", activeTokens)
+			logging.Info(handlersLogger, "register handler too many active tokens active_tokens={ActiveTokens}", activeTokens)
 			controller.renderRegisterError(w, email, "Too many active verification links. Please check your email or try again later.", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
@@ -633,7 +633,7 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 		logging.Info(handlersLogger, "register handler resending verification email for unverified user")
 		err = controller.sendVerificationEmail(email)
 		if err != nil {
-			logging.Error(handlersLogger, "register handler error sending verification email: %v", err)
+			logging.Error(handlersLogger, "register handler error sending verification email: {Error}", err)
 			controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
@@ -644,17 +644,17 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Create new user
-	logging.Info(handlersLogger, "register handler creating new user email=%s", email)
+	logging.Info(handlersLogger, "register handler creating new user email={Email}", email)
 	hashedPassword, err := crypto.HashPassword(password)
 	if err != nil {
-		logging.Error(handlersLogger, "register handler error hashing password: %v", err)
+		logging.Error(handlersLogger, "register handler error hashing password: {Error}", err)
 		controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
 	err = controller.Store.CreateUser(email, hashedPassword)
 	if err != nil {
-		logging.Error(handlersLogger, "register handler error creating user: %v", err)
+		logging.Error(handlersLogger, "register handler error creating user: {Error}", err)
 		controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
@@ -663,7 +663,7 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 	logging.Info(handlersLogger, "register handler sending verification email for new user")
 	err = controller.sendVerificationEmail(email)
 	if err != nil {
-		logging.Error(handlersLogger, "register handler error sending verification email: %v", err)
+		logging.Error(handlersLogger, "register handler error sending verification email: {Error}", err)
 		controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
@@ -703,19 +703,19 @@ func (controller *Controller) VerifyHandler(w http.ResponseWriter, r *http.Reque
 		controller.renderTemplate(w, "verify.html", page, http.StatusBadRequest)
 		return
 	}
-	logging.Info(handlersLogger, "verify handler received code=%s", code)
+	logging.Info(handlersLogger, "verify handler received code={Code}", code)
 
 	controller.verifyWithCode(w, r, code)
 }
 
 // verifyWithCode handles verification with a specific code
 func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Request, code string) {
-	logging.Info(handlersLogger, "verifyWithCode handler called code=%s", code)
+	logging.Info(handlersLogger, "verifyWithCode handler called code={Code}", code)
 
 	// Find and validate token
 	verificationToken, err := controller.Store.FindVerificationToken(code)
 	if err != nil {
-		logging.Error(handlersLogger, "verify handler error finding token: %v", err)
+		logging.Error(handlersLogger, "verify handler error finding token: {Error}", err)
 		page := VerifyPage{
 			Error: "Internal error",
 		}
@@ -724,7 +724,7 @@ func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Requ
 	}
 
 	if verificationToken == nil {
-		logging.Info(handlersLogger, "verify handler token not found code=%s", code)
+		logging.Info(handlersLogger, "verify handler token not found code={Code}", code)
 		page := VerifyPage{
 			Error: "Invalid or expired verification code",
 		}
@@ -734,7 +734,7 @@ func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Requ
 
 	// Check if token is expired
 	if time.Now().Unix() > verificationToken.Expires {
-		logging.Info(handlersLogger, "verify handler token expired code=%s expires_at=%d", code, verificationToken.Expires)
+		logging.Info(handlersLogger, "verify handler token expired code={Code} expires_at={ExpiresAt}", code, verificationToken.Expires)
 		err := controller.Store.DeleteVerificationToken(code)
 		if err != nil {
 			sendInternalOAuthError(w, r, err, nil, "Internal error")
@@ -750,7 +750,7 @@ func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Requ
 	// Mark user as verified
 	err = controller.Store.VerifyUser(verificationToken.Email)
 	if err != nil {
-		logging.Error(handlersLogger, "verify handler error verifying user: %v", err)
+		logging.Error(handlersLogger, "verify handler error verifying user: {Error}", err)
 		page := VerifyPage{
 			Error: "Internal error",
 		}
@@ -761,12 +761,12 @@ func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Requ
 	// Delete the verification token
 	err = controller.Store.DeleteVerificationToken(code)
 	if err != nil {
-		logging.Error(handlersLogger, "verify handler error deleting token: %v", err)
+		logging.Error(handlersLogger, "verify handler error deleting token: {Error}", err)
 		sendInternalOAuthError(w, r, err, nil, "Internal error")
 		return
 	}
 
-	logging.Info(handlersLogger, "verify handler verification successful email=%s", verificationToken.Email)
+	logging.Info(handlersLogger, "verify handler verification successful email={Email}", verificationToken.Email)
 	page := VerifyPage{
 		Success: "Verification successful",
 	}
@@ -839,7 +839,7 @@ func (controller *Controller) ForgotPasswordHandler(w http.ResponseWriter, r *ht
 	resetLink := fmt.Sprintf("%s/reset-password?token=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendPasswordResetEmail(email, resetLink)
 	if err != nil {
-		logging.Error(handlersLogger, "Failed to send password reset email: %v", err)
+		logging.Error(handlersLogger, "Failed to send password reset email: {Error}", err)
 		// Continue with the flow even if email sending fails
 	}
 
@@ -1023,7 +1023,7 @@ func (controller *Controller) DeleteAccountHandler(w http.ResponseWriter, r *htt
 	deleteLink := fmt.Sprintf("%s/verify-delete?token=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendDeleteAccountEmail(email, deleteLink)
 	if err != nil {
-		logging.Error(handlersLogger, "Failed to send delete account email: %v", err)
+		logging.Error(handlersLogger, "Failed to send delete account email: {Error}", err)
 	}
 
 	page := DeleteAccountPage{
@@ -1081,7 +1081,7 @@ func (controller *Controller) VerifyDeleteHandler(w http.ResponseWriter, r *http
 
 	// Check if token is expired
 	if time.Now().Unix() > verificationToken.Expires {
-		logging.Info(handlersLogger, "verify delete handler token expired token=%s expires_at=%d", token, verificationToken.Expires)
+		logging.Info(handlersLogger, "verify delete handler token expired token={Token} expires_at={ExpiresAt}", token, verificationToken.Expires)
 		page := VerifyDeletePage{
 			Error: "Verification code has expired",
 		}
@@ -1102,11 +1102,11 @@ func (controller *Controller) VerifyDeleteHandler(w http.ResponseWriter, r *http
 	// Delete the verification token
 	err = controller.Store.DeleteVerificationToken(token)
 	if err != nil {
-		logging.Error(handlersLogger, "verify delete handler error deleting token: %v", err)
+		logging.Error(handlersLogger, "verify delete handler error deleting token: {Error}", err)
 		// Don't fail the deletion if we can't delete the token
 	}
 
-	logging.Info(handlersLogger, "verify delete handler account deletion successful email=%s", verificationToken.Email)
+	logging.Info(handlersLogger, "verify delete handler account deletion successful email={Email}", verificationToken.Email)
 	page := VerifyDeletePage{
 		Success: "Your account has been deleted successfully.",
 	}
@@ -1155,7 +1155,7 @@ func (controller *Controller) ResendDeleteVerificationHandler(w http.ResponseWri
 	deleteLink := fmt.Sprintf("%s/verify-delete?token=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendDeleteAccountEmail(email, deleteLink)
 	if err != nil {
-		logging.Error(handlersLogger, "Failed to send delete account email: %v", err)
+		logging.Error(handlersLogger, "Failed to send delete account email: {Error}", err)
 	}
 
 	redirectResponse(w, r, http.StatusFound, "/delete-account")
