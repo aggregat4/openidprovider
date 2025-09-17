@@ -1198,6 +1198,9 @@ type handlerTransport struct {
 	handler http.Handler
 }
 
+// Simulate the client/server interaction entirely in memory by cloning the
+// outgoing request, replaying its body into the test handler, and returning
+// the recorder's response as if it came over the network.
 func (t *handlerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.handler == nil {
 		return nil, fmt.Errorf("handler not initialized")
