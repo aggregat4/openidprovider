@@ -27,39 +27,35 @@ func ForComponent(name string) core.Logger {
 	return Logger.With("component", name)
 }
 
-// Info logs at information level with optional structured fields.
-func Info(logger core.Logger, msg string, kv ...any) {
-	with(logger, kv...).Info(msg)
+// Info logs at information level using fmt-style formatting.
+func Info(logger core.Logger, format string, args ...any) {
+	logger.Info(render(format, args...))
 }
 
-// Debug logs at debug level with optional structured fields.
-func Debug(logger core.Logger, msg string, kv ...any) {
-	with(logger, kv...).Debug(msg)
+// Debug logs at debug level using fmt-style formatting.
+func Debug(logger core.Logger, format string, args ...any) {
+	logger.Debug(render(format, args...))
 }
 
-// Error logs at error level with optional structured fields.
-func Error(logger core.Logger, msg string, kv ...any) {
-	with(logger, kv...).Error(msg)
+// Error logs at error level using fmt-style formatting.
+func Error(logger core.Logger, format string, args ...any) {
+	logger.Error(render(format, args...))
 }
 
-// Warn logs at warning level with optional structured fields.
-func Warn(logger core.Logger, msg string, kv ...any) {
-	with(logger, kv...).Warn(msg)
+// Warn logs at warning level using fmt-style formatting.
+func Warn(logger core.Logger, format string, args ...any) {
+	logger.Warn(render(format, args...))
 }
 
 // Fatal logs a formatted message and terminates the process.
 func Fatal(logger core.Logger, format string, args ...any) {
-	message := format
-	if len(args) > 0 {
-		message = fmt.Sprintf(format, args...)
-	}
-	logger.Error(message)
+	logger.Error(render(format, args...))
 	os.Exit(1)
 }
 
-func with(logger core.Logger, kv ...any) core.Logger {
-	if len(kv) == 0 {
-		return logger
+func render(format string, args ...any) string {
+	if len(args) == 0 {
+		return format
 	}
-	return logger.With(kv...)
+	return fmt.Sprintf(format, args...)
 }

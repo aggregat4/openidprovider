@@ -19,7 +19,7 @@ func sendOauthAccessTokenError(w http.ResponseWriter, errorCode string) {
 
 // sendInternalOAuthError sends internal errors
 func sendInternalOAuthError(w http.ResponseWriter, r *http.Request, originalError error, fullRedirectUri *url.URL, state string) {
-	logging.Error(logger, "Internal error", "error", originalError)
+	logging.Error(logger, "Internal error: %v", originalError)
 	sendOauthError(w, r, fullRedirectUri, "server_error", "Internal server error", state)
 }
 
@@ -51,7 +51,7 @@ func jsonResponse(w http.ResponseWriter, statusCode int, data any) {
 	w.Header().Set("Content-Type", ContentTypeJson)
 	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		logging.Error(logger, "Failed to encode JSON response", "error", err)
+		logging.Error(logger, "Failed to encode JSON response: %v", err)
 	}
 }
 

@@ -58,7 +58,7 @@ func (j *CleanupJob) run() {
 				j.inCleanup = true
 				if err := j.cleanup(); err != nil {
 					if err.Error() != "sql: database is closed" {
-						logging.Error(logger, "Error during cleanup", "error", err)
+						logging.Error(logger, "Error during cleanup: %v", err)
 					}
 				}
 				j.inCleanup = false

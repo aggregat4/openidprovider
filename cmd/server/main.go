@@ -36,7 +36,7 @@ func main() {
 	// Initialize email sender
 	var emailSender email.EmailSender
 	if config.MockEmailDemoServerURL != "" {
-		logging.Info(logger, "Using mock email sender with demo server URL", "demoServerURL", config.MockEmailDemoServerURL)
+		logging.Info(logger, "Using mock email sender with demo server URL %s", config.MockEmailDemoServerURL)
 		emailSender = email.NewMockEmailSender(config.MockEmailDemoServerURL)
 	} else {
 		logging.Info(logger, "Using SMTP email sender")

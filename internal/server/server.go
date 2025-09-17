@@ -155,19 +155,18 @@ func (controller *Controller) renderTemplate(w http.ResponseWriter, templateName
 // loggingMiddleware logs all requests
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reqLogger := logger.With(
-			"method", r.Method,
-			"path", r.URL.Path,
-			"query", r.URL.RawQuery,
-			"userAgent", r.UserAgent(),
-			"remoteAddr", r.RemoteAddr,
+		logging.Info(logger, "Incoming request method=%s path=%s query=%s userAgent=%q remoteAddr=%s",
+			r.Method,
+			r.URL.Path,
+			r.URL.RawQuery,
+			r.UserAgent(),
+			r.RemoteAddr,
 		)
-		reqLogger.Info("Incoming request")
 
 		// Log form data for POST requests
 		if r.Method == http.MethodPost {
 			if err := r.ParseForm(); err == nil {
-				reqLogger.With("form", r.Form).Info("Parsed form data")
+				logging.Info(logger, "Parsed form data form=%s", r.Form.Encode())
 			}
 		}
 
@@ -176,10 +175,12 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(ww, r)
 
-		reqLogger.With(
-			"status", ww.Status(),
-			"bytesWritten", ww.BytesWritten(),
-		).Info("Request completed")
+		logging.Info(logger, "Request completed method=%s path=%s status=%d bytesWritten=%d",
+			r.Method,
+			r.URL.Path,
+			ww.Status(),
+			ww.BytesWritten(),
+		)
 	})
 }
 
