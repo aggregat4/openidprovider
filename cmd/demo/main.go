@@ -17,11 +17,6 @@ import (
 
 var logger = logging.ForComponent("cmd.demo")
 
-func fatal(format string, args ...any) {
-	logging.Error(logger, fmt.Sprintf(format, args...))
-	os.Exit(1)
-}
-
 const (
 	publicHTML = `<!DOCTYPE html>
 <html lang="en">
@@ -179,7 +174,7 @@ func main() {
 	// Get OpenID Provider configuration
 	providerConfig, err := getOpenIDProviderConfig(config.OpenIDProvider)
 	if err != nil {
-		fatal("Error getting OpenID Provider configuration: %v", err)
+		logging.Fatal(logger, "Error getting OpenID Provider configuration: %v", err)
 	}
 	logging.Info(logger, "Successfully retrieved OpenID Provider configuration from ", "provider", config.OpenIDProvider)
 
@@ -197,7 +192,7 @@ func main() {
 
 	logging.Info(logger, "Starting demo server on port ", "port", config.Port)
 	if err := http.ListenAndServe(":8080", nil); err != nil {
-		fatal("HTTP server failed: %v", err)
+		logging.Fatal(logger, "HTTP server failed: %v", err)
 	}
 }
 
@@ -232,12 +227,12 @@ func getOpenIDProviderConfig(providerURL string) (*OpenIDProviderConfig, error) 
 func readConfig(path string) Config {
 	file, err := os.ReadFile(path)
 	if err != nil {
-		fatal("Error reading config file: %v", err)
+		logging.Fatal(logger, "Error reading config file: %v", err)
 	}
 
 	var config Config
 	if err := json.Unmarshal(file, &config); err != nil {
-		fatal("Error parsing config file: %v", err)
+		logging.Fatal(logger, "Error parsing config file: %v", err)
 	}
 
 	return config

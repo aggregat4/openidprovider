@@ -1,6 +1,9 @@
 package logging
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/willibrandon/mtlog"
 	"github.com/willibrandon/mtlog/core"
 )
@@ -42,6 +45,16 @@ func Error(logger core.Logger, msg string, kv ...any) {
 // Warn logs at warning level with optional structured fields.
 func Warn(logger core.Logger, msg string, kv ...any) {
 	with(logger, kv...).Warn(msg)
+}
+
+// Fatal logs a formatted message and terminates the process.
+func Fatal(logger core.Logger, format string, args ...any) {
+	message := format
+	if len(args) > 0 {
+		message = fmt.Sprintf(format, args...)
+	}
+	logger.Error(message)
+	os.Exit(1)
 }
 
 func with(logger core.Logger, kv ...any) core.Logger {

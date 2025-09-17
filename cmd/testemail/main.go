@@ -7,10 +7,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 
 	"github.com/aggregat4/go-baselib/lang"
-	"github.com/willibrandon/mtlog/core"
 	"github.com/wneessen/go-mail"
 )
 
@@ -44,7 +42,7 @@ func main() {
 	}
 
 	if recipientEmail == "" {
-		fatal(logger, "Recipient email address is required. Use -to flag or -help for usage information.")
+		logging.Fatal(logger, "Recipient email address is required. Use -to flag or -help for usage information.")
 	}
 
 	// Read configuration
@@ -52,12 +50,12 @@ func main() {
 
 	k, err := config.LoadConfigFile(configFile)
 	if err != nil {
-		fatal(logger, "Error loading configuration: %v", err)
+		logging.Fatal(logger, "Error loading configuration: %v", err)
 	}
 
 	smtpConfig, err := config.ReadSMTPConfig(k)
 	if err != nil {
-		fatal(logger, "Error reading SMTP configuration: %v", err)
+		logging.Fatal(logger, "Error reading SMTP configuration: %v", err)
 	}
 
 	fmt.Printf("Configuration loaded from: %s\n", configFile)
@@ -72,15 +70,10 @@ func main() {
 	fmt.Println("Sending test email...")
 	err = sendTestEmail(smtpConfig, recipientEmail)
 	if err != nil {
-		fatal(logger, "Error sending email: %v", err)
+		logging.Fatal(logger, "Error sending email: %v", err)
 	}
 
 	fmt.Printf("✅ Test email sent successfully to %s\n", recipientEmail)
-}
-
-func fatal(logger core.Logger, format string, args ...any) {
-	logging.Error(logger, fmt.Sprintf(format, args...))
-	os.Exit(1)
 }
 
 func sendTestEmail(smtpConfig *domain.SMTPConfiguration, recipientEmail string) error {
