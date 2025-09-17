@@ -2,10 +2,10 @@ package server
 
 import (
 	"aggregat4/openidprovider/internal/domain"
+	"aggregat4/openidprovider/internal/logging"
 	"aggregat4/openidprovider/internal/repository"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -63,15 +63,17 @@ type LoginPage struct {
 	Scope       string
 }
 
+var handlersLogger = logging.ForComponent("server.handlers")
+
 // StatusHandler handles the status endpoint
 func (controller *Controller) StatusHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Status endpoint")
+	logging.Info(handlersLogger, "Status endpoint")
 	stringResponse(w, http.StatusOK, "OK")
 }
 
 // JwksHandler handles the JWKS endpoint
 func (controller *Controller) JwksHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("JWKS endpoint")
+	logging.Info(handlersLogger, "JWKS endpoint")
 
 	// Create JWKS document
 	jwks := gojose.JSONWebKeySet{
@@ -87,7 +89,7 @@ func (controller *Controller) JwksHandler(w http.ResponseWriter, r *http.Request
 
 	jwksBytes, err := json.MarshalIndent(jwks, "", "  ")
 	if err != nil {
-		slog.Error("Failed to marshal JWKS", "error", err)
+		logging.Error(handlersLogger, "Failed to marshal JWKS", "error", err)
 		stringResponse(w, http.StatusInternalServerError, "Internal error")
 		return
 	}
@@ -99,7 +101,7 @@ func (controller *Controller) JwksHandler(w http.ResponseWriter, r *http.Request
 
 // OpenIdConfigurationHandler handles the OpenID configuration endpoint
 func (controller *Controller) OpenIdConfigurationHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("OpenID Configuration endpoint")
+	logging.Info(handlersLogger, "OpenID Configuration endpoint")
 
 	// Get all scopes from the database
 	scopes, err := controller.Store.ListScopes()
@@ -113,7 +115,7 @@ func (controller *Controller) OpenIdConfigurationHandler(w http.ResponseWriter, 
 	for _, scope := range scopes {
 		scopeClaims, err := controller.Store.ListScopeClaims(scope.Name)
 		if err != nil {
-			slog.Error("Failed to get scope claims", "error", err)
+			logging.Error(handlersLogger, "Failed to get scope claims", "error", err)
 			stringResponse(w, http.StatusInternalServerError, "Internal error")
 			return
 		}
@@ -156,7 +158,7 @@ func (controller *Controller) OpenIdConfigurationHandler(w http.ResponseWriter, 
 // https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 // Error handling as per https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
 func (controller *Controller) TokenHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Token endpoint")
+	logging.Info(handlersLogger, "Token endpoint")
 
 	// Get client_id from basic auth context (set by middleware)
 	clientId := r.Context().Value(clientIDContextKey).(string)
@@ -254,7 +256,7 @@ func (controller *Controller) TokenHandler(w http.ResponseWriter, r *http.Reques
 // AuthorizeHandler handles OAuth authorization requests
 // No support for "nonce", "display", "prompt", "max_age", "ui_locales", "id_token_hint", "login_hint", "acr_values" yet
 func (controller *Controller) AuthorizeHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Authorize endpoint")
+	logging.Info(handlersLogger, "Authorize endpoint")
 
 	authReqScopes := strings.Split(getParam(r, "scope"), " ")
 	authReqResponseType := getParam(r, "response_type")
@@ -325,7 +327,7 @@ func (controller *Controller) AuthorizeHandler(w http.ResponseWriter, r *http.Re
 // But since this treats a potential malicious client as a real client, this seems unwise? Or is it better
 // to return an OAuth error so the implementor of a buggy client can see what's wrong?
 func (controller *Controller) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Login endpoint")
+	logging.Info(handlersLogger, "Login endpoint")
 
 	clientId := getFormValue(r, "clientid")
 	redirectUri := getFormValue(r, "redirecturi")
@@ -355,7 +357,7 @@ func (controller *Controller) LoginHandler(w http.ResponseWriter, r *http.Reques
 
 // handleRegularLogin handles regular web login
 func (controller *Controller) handleRegularLogin(w http.ResponseWriter, r *http.Request, username, password string) {
-	slog.Info("handleRegularLogin called", "username", username)
+	logging.Info(handlersLogger, "handleRegularLogin called", "username", username)
 	// Basic validation
 	if username == "" || password == "" {
 		stringResponse(w, http.StatusBadRequest, "Missing credentials")
@@ -365,7 +367,7 @@ func (controller *Controller) handleRegularLogin(w http.ResponseWriter, r *http.
 	// Validate credentials
 	valid, err := controller.validateCredentials(username, password)
 	if err != nil {
-		slog.Error("Error validating credentials", "error", err)
+		logging.Error(handlersLogger, "Error validating credentials", "error", err)
 		stringResponse(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
@@ -380,7 +382,7 @@ func (controller *Controller) handleRegularLogin(w http.ResponseWriter, r *http.
 
 // handleOAuthLogin handles OAuth login flow
 func (controller *Controller) handleOAuthLogin(w http.ResponseWriter, r *http.Request, clientId, redirectUri, state, scopes, username, password string) {
-	slog.Info("handleOAuthLogin called", "clientId", clientId, "username", username)
+	logging.Info(handlersLogger, "handleOAuthLogin called", "clientId", clientId, "username", username)
 	// Create redirect URL for error responses
 	redirectUrl, err := url.Parse(redirectUri)
 	if err != nil {
@@ -397,7 +399,7 @@ func (controller *Controller) handleOAuthLogin(w http.ResponseWriter, r *http.Re
 	// Validate credentials
 	valid, err := controller.validateCredentials(username, password)
 	if err != nil {
-		slog.Error("Error validating credentials", "error", err)
+		logging.Error(handlersLogger, "Error validating credentials", "error", err)
 		sendInternalOAuthError(w, r, err, redirectUrl, state)
 		return
 	}
@@ -426,7 +428,7 @@ func (controller *Controller) handleOAuthLogin(w http.ResponseWriter, r *http.Re
 	}
 
 	if user == nil {
-		slog.Debug("User not found with username")
+		logging.Debug(handlersLogger, "User not found with username")
 		// See https://openid.net/specs/openid-connect-core-1_0.html#AuthError
 		sendOauthError(w, r, redirectUrl, "access_denied", "Invalid username or password", state)
 		return
@@ -453,13 +455,13 @@ func (controller *Controller) handleOAuthLogin(w http.ResponseWriter, r *http.Re
 	query.Add("code", code)
 	query.Add("state", state)
 	redirectUrl.RawQuery = query.Encode()
-	slog.Info("login request password ok. redirecting")
+	logging.Info(handlersLogger, "login request password ok. redirecting")
 	redirectResponse(w, r, http.StatusFound, redirectUrl.String())
 }
 
 // showLoginPage shows the login page
 func (controller *Controller) showLoginPage(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Show login page")
+	logging.Info(handlersLogger, "Show login page")
 
 	clientId := getParam(r, "client_id")
 	redirectUri := getParam(r, "redirect_uri")
@@ -478,11 +480,11 @@ func (controller *Controller) showLoginPage(w http.ResponseWriter, r *http.Reque
 
 // ShowRegisterPageHandler handles the register page display
 func (controller *Controller) ShowRegisterPageHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Show register page")
+	logging.Info(handlersLogger, "Show register page")
 
 	altchaChallenge, err := controller.CaptchaVerifier.CreateChallenge()
 	if err != nil {
-		slog.Error("Failed to create ALTCHA challenge", "error", err)
+		logging.Error(handlersLogger, "Failed to create ALTCHA challenge", "error", err)
 		altchaChallenge = ""
 	}
 
@@ -498,46 +500,46 @@ func (controller *Controller) ShowRegisterPageHandler(w http.ResponseWriter, r *
 
 // RegisterHandler handles user registration
 func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Register endpoint")
+	logging.Info(handlersLogger, "Register endpoint")
 
 	email := getFormValue(r, "email")
 	password := getFormValue(r, "password")
 	confirmPassword := getFormValue(r, "confirmPassword")
 	altchaSolution := getFormValue(r, "altcha")
 
-	slog.Info("register handler form values", "email", email, "password_length", len(password), "confirmPassword_length", len(confirmPassword), "altcha_solution", string(altchaSolution))
+	logging.Info(handlersLogger, "register handler form values", "email", email, "password_length", len(password), "confirmPassword_length", len(confirmPassword), "altcha_solution", string(altchaSolution))
 
 	// Generate ALTCHA challenge for all responses
 	altchaChallenge, err := controller.CaptchaVerifier.CreateChallenge()
 	if err != nil {
-		slog.Error("Failed to create ALTCHA challenge", "error", err)
+		logging.Error(handlersLogger, "Failed to create ALTCHA challenge", "error", err)
 		controller.renderRegisterError(w, email, "Internal error", "", http.StatusInternalServerError)
 		return
 	}
-	slog.Info("register handler generated ALTCHA challenge", "challenge", altchaChallenge)
+	logging.Info(handlersLogger, "register handler generated ALTCHA challenge", "challenge", altchaChallenge)
 
 	// Basic validation
 	if email == "" || password == "" || confirmPassword == "" {
-		slog.Info("register handler validation failed - empty fields")
+		logging.Info(handlersLogger, "register handler validation failed - empty fields")
 		controller.renderRegisterError(w, email, "All fields are required", altchaChallenge, http.StatusBadRequest)
 		return
 	}
 
 	if password != confirmPassword {
-		slog.Info("register handler validation failed - passwords don't match")
+		logging.Info(handlersLogger, "register handler validation failed - passwords don't match")
 		controller.renderRegisterError(w, email, "Passwords do not match", altchaChallenge, http.StatusBadRequest)
 		return
 	}
 
 	// verify that the password is at least 8 characters long
 	if len(password) < 8 {
-		slog.Info("register handler validation failed - password too short")
+		logging.Info(handlersLogger, "register handler validation failed - password too short")
 		controller.renderRegisterError(w, email, "Password must be at least 8 characters long", altchaChallenge, http.StatusBadRequest)
 		return
 	}
 
 	if altchaSolution == "" {
-		slog.Info("register handler ALTCHA solution missing")
+		logging.Info(handlersLogger, "register handler ALTCHA solution missing")
 		controller.renderRegisterError(w, email, "Please complete the captcha", altchaChallenge, http.StatusBadRequest)
 		return
 	}
@@ -545,48 +547,48 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 	// Verify the ALTCHA solution
 	ok, err := controller.CaptchaVerifier.VerifySolution(altchaSolution)
 	if err != nil {
-		slog.Error("register handler ALTCHA verification error", "error", err)
+		logging.Error(handlersLogger, "register handler ALTCHA verification error", "error", err)
 		controller.renderRegisterError(w, email, "Captcha verification failed", altchaChallenge, http.StatusBadRequest)
 		return
 	}
 	if !ok {
-		slog.Info("register handler ALTCHA verification failed")
+		logging.Info(handlersLogger, "register handler ALTCHA verification failed")
 		controller.renderRegisterError(w, email, "Captcha verification failed", altchaChallenge, http.StatusBadRequest)
 		return
 	}
-	slog.Info("register handler ALTCHA verification successful")
+	logging.Info(handlersLogger, "register handler ALTCHA verification successful")
 
 	// Check if user already exists
-	slog.Info("register handler checking if user exists", "email", email)
+	logging.Info(handlersLogger, "register handler checking if user exists", "email", email)
 	existingUser, err := controller.Store.FindUser(email)
 	if err != nil {
-		slog.Error("register handler error finding user", "error", err)
+		logging.Error(handlersLogger, "register handler error finding user", "error", err)
 		controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
 	if existingUser != nil {
-		slog.Info("register handler user exists", "email", email, "verified", existingUser.Verified)
+		logging.Info(handlersLogger, "register handler user exists", "email", email, "verified", existingUser.Verified)
 
 		// If user is already verified, redirect to login
 		if existingUser.Verified {
-			slog.Info("register handler redirecting verified user to login")
+			logging.Info(handlersLogger, "register handler redirecting verified user to login")
 			redirectResponse(w, r, http.StatusFound, "/login")
 			return
 		}
 
 		// If user exists but is not verified, check if we should resend verification email
-		slog.Info("register handler checking if should resend verification for unverified user")
+		logging.Info(handlersLogger, "register handler checking if should resend verification for unverified user")
 		lastAttempt, err := controller.Store.GetLastRegistrationAttempt(email)
 		if err != nil {
-			slog.Error("register handler error getting last registration attempt", "error", err)
+			logging.Error(handlersLogger, "register handler error getting last registration attempt", "error", err)
 			controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
 		// If last attempt was less than 5 minutes ago, show debounce message
 		if time.Now().Unix()-lastAttempt < 300 {
-			slog.Info("register handler email debouncing", "last_attempt", lastAttempt, "time_since", time.Now().Unix()-lastAttempt)
+			logging.Info(handlersLogger, "register handler email debouncing", "last_attempt", lastAttempt, "time_since", time.Now().Unix()-lastAttempt)
 			controller.renderRegisterError(w, email, "Please wait a few minutes before trying again", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
@@ -594,14 +596,14 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 		// Check for too many failed verification attempts
 		failedAttempts, err := controller.Store.GetFailedVerificationAttempts(email)
 		if err != nil {
-			slog.Error("register handler error getting failed verification attempts", "error", err)
+			logging.Error(handlersLogger, "register handler error getting failed verification attempts", "error", err)
 			controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
 		// Block after 5 failed attempts
 		if failedAttempts >= 5 {
-			slog.Info("register handler too many failed verification attempts", "failed_attempts", failedAttempts)
+			logging.Info(handlersLogger, "register handler too many failed verification attempts", "failed_attempts", failedAttempts)
 			controller.renderRegisterError(w, email, "Too many failed verification attempts. Please try again later.", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
@@ -609,64 +611,64 @@ func (controller *Controller) RegisterHandler(w http.ResponseWriter, r *http.Req
 		// Check for too many active tokens
 		activeTokens, err := controller.Store.GetActiveVerificationTokensCount(email)
 		if err != nil {
-			slog.Error("register handler error getting active tokens count", "error", err)
+			logging.Error(handlersLogger, "register handler error getting active tokens count", "error", err)
 			controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
 		// Maximum 3 active tokens per email
 		if activeTokens >= 3 {
-			slog.Info("register handler too many active tokens", "active_tokens", activeTokens)
+			logging.Info(handlersLogger, "register handler too many active tokens", "active_tokens", activeTokens)
 			controller.renderRegisterError(w, email, "Too many active verification links. Please check your email or try again later.", altchaChallenge, http.StatusTooManyRequests)
 			return
 		}
 
 		// OK, we don't need to debounce the user, we can resend the verification email
-		slog.Info("register handler resending verification email for unverified user")
+		logging.Info(handlersLogger, "register handler resending verification email for unverified user")
 		err = controller.sendVerificationEmail(email)
 		if err != nil {
-			slog.Error("register handler error sending verification email", "error", err)
+			logging.Error(handlersLogger, "register handler error sending verification email", "error", err)
 			controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 			return
 		}
 
-		slog.Info("register handler verification email resent successfully")
+		logging.Info(handlersLogger, "register handler verification email resent successfully")
 		controller.renderRegisterSuccess(w, email, "Verification email sent. Please check your email to verify your account.", altchaChallenge)
 		return
 	}
 
 	// Create new user
-	slog.Info("register handler creating new user", "email", email)
+	logging.Info(handlersLogger, "register handler creating new user", "email", email)
 	hashedPassword, err := crypto.HashPassword(password)
 	if err != nil {
-		slog.Error("register handler error hashing password", "error", err)
+		logging.Error(handlersLogger, "register handler error hashing password", "error", err)
 		controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
 	err = controller.Store.CreateUser(email, hashedPassword)
 	if err != nil {
-		slog.Error("register handler error creating user", "error", err)
+		logging.Error(handlersLogger, "register handler error creating user", "error", err)
 		controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
 	// Send verification email
-	slog.Info("register handler sending verification email for new user")
+	logging.Info(handlersLogger, "register handler sending verification email for new user")
 	err = controller.sendVerificationEmail(email)
 	if err != nil {
-		slog.Error("register handler error sending verification email", "error", err)
+		logging.Error(handlersLogger, "register handler error sending verification email", "error", err)
 		controller.renderRegisterError(w, email, "Internal error", altchaChallenge, http.StatusInternalServerError)
 		return
 	}
 
-	slog.Info("register handler registration successful")
+	logging.Info(handlersLogger, "register handler registration successful")
 	controller.renderRegisterSuccess(w, email, "Registration successful! Please check your email to verify your account.", altchaChallenge)
 }
 
 // ShowVerificationPageHandler handles the verification page display
 func (controller *Controller) ShowVerificationPageHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Show verification page")
+	logging.Info(handlersLogger, "Show verification page")
 
 	code := getParam(r, "code")
 	if code == "" {
@@ -683,31 +685,31 @@ func (controller *Controller) ShowVerificationPageHandler(w http.ResponseWriter,
 
 // VerifyHandler handles email verification
 func (controller *Controller) VerifyHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Verify endpoint")
+	logging.Info(handlersLogger, "Verify endpoint")
 
 	code := getFormValue(r, "code")
 	// basic validation
 	if code == "" {
-		slog.Info("verify handler validation failed - code is empty")
+		logging.Info(handlersLogger, "verify handler validation failed - code is empty")
 		page := VerifyPage{
 			Error: "Verification code is required",
 		}
 		controller.renderTemplate(w, "verify.html", page, http.StatusBadRequest)
 		return
 	}
-	slog.Info("verify handler received code", "code", code)
+	logging.Info(handlersLogger, "verify handler received code", "code", code)
 
 	controller.verifyWithCode(w, r, code)
 }
 
 // verifyWithCode handles verification with a specific code
 func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Request, code string) {
-	slog.Info("verifyWithCode handler called", "code", code)
+	logging.Info(handlersLogger, "verifyWithCode handler called", "code", code)
 
 	// Find and validate token
 	verificationToken, err := controller.Store.FindVerificationToken(code)
 	if err != nil {
-		slog.Error("verify handler error finding token", "error", err)
+		logging.Error(handlersLogger, "verify handler error finding token", "error", err)
 		page := VerifyPage{
 			Error: "Internal error",
 		}
@@ -716,7 +718,7 @@ func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Requ
 	}
 
 	if verificationToken == nil {
-		slog.Info("verify handler token not found", "code", code)
+		logging.Info(handlersLogger, "verify handler token not found", "code", code)
 		page := VerifyPage{
 			Error: "Invalid or expired verification code",
 		}
@@ -726,7 +728,7 @@ func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Requ
 
 	// Check if token is expired
 	if time.Now().Unix() > verificationToken.Expires {
-		slog.Info("verify handler token expired", "code", code, "expires_at", verificationToken.Expires)
+		logging.Info(handlersLogger, "verify handler token expired", "code", code, "expires_at", verificationToken.Expires)
 		err := controller.Store.DeleteVerificationToken(code)
 		if err != nil {
 			sendInternalOAuthError(w, r, err, nil, "Internal error")
@@ -742,7 +744,7 @@ func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Requ
 	// Mark user as verified
 	err = controller.Store.VerifyUser(verificationToken.Email)
 	if err != nil {
-		slog.Error("verify handler error verifying user", "error", err)
+		logging.Error(handlersLogger, "verify handler error verifying user", "error", err)
 		page := VerifyPage{
 			Error: "Internal error",
 		}
@@ -753,12 +755,12 @@ func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Requ
 	// Delete the verification token
 	err = controller.Store.DeleteVerificationToken(code)
 	if err != nil {
-		slog.Error("verify handler error deleting token", "error", err)
+		logging.Error(handlersLogger, "verify handler error deleting token", "error", err)
 		sendInternalOAuthError(w, r, err, nil, "Internal error")
 		return
 	}
 
-	slog.Info("verify handler verification successful", "email", verificationToken.Email)
+	logging.Info(handlersLogger, "verify handler verification successful", "email", verificationToken.Email)
 	page := VerifyPage{
 		Success: "Verification successful",
 	}
@@ -767,7 +769,7 @@ func (controller *Controller) verifyWithCode(w http.ResponseWriter, r *http.Requ
 
 // ShowForgotPasswordPageHandler handles the forgot password page display
 func (controller *Controller) ShowForgotPasswordPageHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Show forgot password page")
+	logging.Info(handlersLogger, "Show forgot password page")
 
 	page := ForgotPasswordPage{
 		Email:   getParam(r, "email"),
@@ -780,7 +782,7 @@ func (controller *Controller) ShowForgotPasswordPageHandler(w http.ResponseWrite
 
 // ForgotPasswordHandler handles forgot password requests
 func (controller *Controller) ForgotPasswordHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Forgot password endpoint")
+	logging.Info(handlersLogger, "Forgot password endpoint")
 
 	email := getFormValue(r, "email")
 
@@ -831,7 +833,7 @@ func (controller *Controller) ForgotPasswordHandler(w http.ResponseWriter, r *ht
 	resetLink := fmt.Sprintf("%s/reset-password?token=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendPasswordResetEmail(email, resetLink)
 	if err != nil {
-		slog.Error("Failed to send password reset email", "error", err)
+		logging.Error(handlersLogger, "Failed to send password reset email", "error", err)
 		// Continue with the flow even if email sending fails
 	}
 
@@ -844,7 +846,7 @@ func (controller *Controller) ForgotPasswordHandler(w http.ResponseWriter, r *ht
 
 // ShowResetPasswordPageHandler handles the reset password page display
 func (controller *Controller) ShowResetPasswordPageHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Show reset password page")
+	logging.Info(handlersLogger, "Show reset password page")
 
 	token := getParam(r, "token")
 
@@ -859,7 +861,7 @@ func (controller *Controller) ShowResetPasswordPageHandler(w http.ResponseWriter
 
 // ResetPasswordHandler handles password reset
 func (controller *Controller) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Reset password endpoint")
+	logging.Info(handlersLogger, "Reset password endpoint")
 
 	token := getFormValue(r, "token")
 	password := getFormValue(r, "password")
@@ -956,13 +958,13 @@ func (controller *Controller) ResetPasswordHandler(w http.ResponseWriter, r *htt
 
 // ShowDeleteAccountPageHandler handles the delete account page display
 func (controller *Controller) ShowDeleteAccountPageHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Show delete account page")
+	logging.Info(handlersLogger, "Show delete account page")
 	controller.renderTemplate(w, "delete-account.html", DeleteAccountPage{}, http.StatusOK)
 }
 
 // DeleteAccountHandler handles account deletion requests
 func (controller *Controller) DeleteAccountHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Delete account endpoint")
+	logging.Info(handlersLogger, "Delete account endpoint")
 
 	email := getFormValue(r, "email")
 	if email == "" {
@@ -1015,7 +1017,7 @@ func (controller *Controller) DeleteAccountHandler(w http.ResponseWriter, r *htt
 	deleteLink := fmt.Sprintf("%s/verify-delete?token=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendDeleteAccountEmail(email, deleteLink)
 	if err != nil {
-		slog.Error("Failed to send delete account email", "error", err)
+		logging.Error(handlersLogger, "Failed to send delete account email", "error", err)
 	}
 
 	page := DeleteAccountPage{
@@ -1027,7 +1029,7 @@ func (controller *Controller) DeleteAccountHandler(w http.ResponseWriter, r *htt
 // TODO: this implementation does not seem right, we just always show the page with an error??
 // ShowVerifyDeletePageHandler handles the verify delete page display
 func (controller *Controller) ShowVerifyDeletePageHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Show verify delete page")
+	logging.Info(handlersLogger, "Show verify delete page")
 
 	token := getParam(r, "token")
 
@@ -1042,7 +1044,7 @@ func (controller *Controller) ShowVerifyDeletePageHandler(w http.ResponseWriter,
 
 // VerifyDeleteHandler handles delete verification
 func (controller *Controller) VerifyDeleteHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Verify delete endpoint")
+	logging.Info(handlersLogger, "Verify delete endpoint")
 
 	token := getFormValue(r, "code")
 	if token == "" {
@@ -1073,7 +1075,7 @@ func (controller *Controller) VerifyDeleteHandler(w http.ResponseWriter, r *http
 
 	// Check if token is expired
 	if time.Now().Unix() > verificationToken.Expires {
-		slog.Info("verify delete handler token expired", "token", token, "expires_at", verificationToken.Expires)
+		logging.Info(handlersLogger, "verify delete handler token expired", "token", token, "expires_at", verificationToken.Expires)
 		page := VerifyDeletePage{
 			Error: "Verification code has expired",
 		}
@@ -1094,11 +1096,11 @@ func (controller *Controller) VerifyDeleteHandler(w http.ResponseWriter, r *http
 	// Delete the verification token
 	err = controller.Store.DeleteVerificationToken(token)
 	if err != nil {
-		slog.Error("verify delete handler error deleting token", "error", err)
+		logging.Error(handlersLogger, "verify delete handler error deleting token", "error", err)
 		// Don't fail the deletion if we can't delete the token
 	}
 
-	slog.Info("verify delete handler account deletion successful", "email", verificationToken.Email)
+	logging.Info(handlersLogger, "verify delete handler account deletion successful", "email", verificationToken.Email)
 	page := VerifyDeletePage{
 		Success: "Your account has been deleted successfully.",
 	}
@@ -1107,7 +1109,7 @@ func (controller *Controller) VerifyDeleteHandler(w http.ResponseWriter, r *http
 
 // ResendDeleteVerificationHandler handles resending delete verification
 func (controller *Controller) ResendDeleteVerificationHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Resend delete verification endpoint")
+	logging.Info(handlersLogger, "Resend delete verification endpoint")
 
 	email := getParam(r, "email")
 	if email == "" {
@@ -1147,7 +1149,7 @@ func (controller *Controller) ResendDeleteVerificationHandler(w http.ResponseWri
 	deleteLink := fmt.Sprintf("%s/verify-delete?token=%s", controller.Config.BaseUrl, token)
 	err = controller.EmailService.SendDeleteAccountEmail(email, deleteLink)
 	if err != nil {
-		slog.Error("Failed to send delete account email", "error", err)
+		logging.Error(handlersLogger, "Failed to send delete account email", "error", err)
 	}
 
 	redirectResponse(w, r, http.StatusFound, "/delete-account")

@@ -1,14 +1,24 @@
 package main
 
 import (
+	"aggregat4/openidprovider/internal/logging"
 	"aggregat4/openidprovider/internal/repository"
 	"flag"
-	"log"
+	"fmt"
+	"os"
 
 	"github.com/aggregat4/go-baselib/crypto"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+var logger = logging.ForComponent("cmd.createuser")
+
+func fatal(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	logging.Error(logger, msg)
+	os.Exit(1)
+}
 
 func main() {
 	var dbName string
@@ -20,29 +30,29 @@ func main() {
 	flag.Parse()
 
 	if dbName == "" {
-		log.Fatalf("Database name is required. Use -db flag to specify it")
+		fatal("Database name is required. Use -db flag to specify it")
 	}
 
 	if initdbPassword != "" && initdbUsername != "" {
 		var store repository.Store
 		err := store.InitAndVerifyDb(repository.CreateFileDbUrl(dbName))
 		if err != nil {
-			log.Fatalf("Error initializing database: %s", err)
+			fatal("Error initializing database: %s", err)
 		}
 		defer store.Close()
 		hashedPassword, err := crypto.HashPassword(initdbPassword)
 		if err != nil {
-			log.Fatalf("Error hashing password: %s", err)
+			fatal("Error hashing password: %s", err)
 		}
 		err = store.CreateUser(initdbUsername, hashedPassword)
 		if err != nil {
-			log.Fatalf("Error initializing database: %s", err)
+			fatal("Error initializing database: %s", err)
 		}
 		err = store.VerifyUser(initdbUsername)
 		if err != nil {
-			log.Fatalf("Error verifying user: %s", err)
+			fatal("Error verifying user: %s", err)
 		}
 	} else {
-		log.Fatalf("Require a username and password to initialize a database with a valid user")
+		fatal("Require a username and password to initialize a database with a valid user")
 	}
 }

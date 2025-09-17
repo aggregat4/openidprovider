@@ -3,14 +3,14 @@ package main
 import (
 	"aggregat4/openidprovider/internal/config"
 	"aggregat4/openidprovider/internal/domain"
+	"aggregat4/openidprovider/internal/logging"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
 	"aggregat4/openidprovider/pkg/email"
 	"flag"
-	"log"
+	"fmt"
+	"os"
 	"time"
-
-	"log/slog"
 
 	"github.com/aggregat4/go-baselib/crypto"
 	"github.com/aggregat4/go-baselib/lang"
@@ -18,8 +18,15 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+var logger = logging.ForComponent("cmd.server")
+
+func fatal(format string, args ...any) {
+	message := fmt.Sprintf(format, args...)
+	logging.Error(logger, message)
+	os.Exit(1)
+}
+
 func main() {
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 
 	var configFileLocation string
 	flag.StringVar(&configFileLocation, "config", "", "The location of the configuration file if you do not want to default to the standard location")
@@ -30,17 +37,17 @@ func main() {
 	var store repository.Store
 	err := store.InitAndVerifyDb(repository.CreateFileDbUrl(config.DatabaseFilename))
 	if err != nil {
-		log.Fatalf("Error initializing database: %s", err)
+		fatal("Error initializing database: %s", err)
 	}
 	defer store.Close()
 
 	// Initialize email sender
 	var emailSender email.EmailSender
 	if config.MockEmailDemoServerURL != "" {
-		slog.Info("Using mock email sender with demo server URL " + config.MockEmailDemoServerURL)
+		logging.Info(logger, "Using mock email sender with demo server URL", "demoServerURL", config.MockEmailDemoServerURL)
 		emailSender = email.NewMockEmailSender(config.MockEmailDemoServerURL)
 	} else {
-		slog.Info("Using SMTP email sender")
+		logging.Info(logger, "Using SMTP email sender")
 		emailSender = email.NewEmailService(config.SMTPConfig, config.EmailRateLimitConfig, &store)
 	}
 
@@ -55,12 +62,12 @@ func main() {
 func readConfig(configFileLocation string) domain.Configuration {
 	k, err := config.LoadConfigFile(configFileLocation)
 	if err != nil {
-		log.Fatalf("error loading config: %v", err)
+		fatal("error loading config: %v", err)
 	}
 
 	databaseFilename := k.String("databasefilename")
 	if databaseFilename == "" {
-		log.Fatalf("Database filename is required in the configuration")
+		fatal("Database filename is required in the configuration")
 	}
 	serverReadTimeoutSeconds := k.Int("serverreadtimeoutseconds")
 	if serverReadTimeoutSeconds == 0 {
@@ -76,24 +83,24 @@ func readConfig(configFileLocation string) domain.Configuration {
 	}
 	baseUrl := k.String("baseurl")
 	if baseUrl == "" {
-		log.Fatalf("Base URL is required in the configuration")
+		fatal("Base URL is required in the configuration")
 	}
 	privateKeyPemFilename := k.String("privatekeypemfilename")
 	if privateKeyPemFilename == "" {
-		log.Fatalf("Private key filename is required in the configuration")
+		fatal("Private key filename is required in the configuration")
 	}
 	privateKey, err := crypto.ReadRSAPrivateKey(privateKeyPemFilename)
 	if err != nil {
-		log.Fatalf("Error reading private key file: %s", err)
+		fatal("Error reading private key file: %s", err)
 	}
 
 	publicKeyPemFilename := k.String("publickeypemfilename")
 	if publicKeyPemFilename == "" {
-		log.Fatalf("Public key filename is required in the configuration")
+		fatal("Public key filename is required in the configuration")
 	}
 	publicKey, err := crypto.ReadRSAPublicKey(publicKeyPemFilename)
 	if err != nil {
-		log.Fatalf("Error reading public key file: %s", err)
+		fatal("Error reading public key file: %s", err)
 	}
 
 	configuredClients := k.Get("registeredclients")
@@ -102,34 +109,34 @@ func readConfig(configFileLocation string) domain.Configuration {
 	// loop we cast the objects to a `map[string]any`
 	clients, ok := configuredClients.([]any)
 	if !ok {
-		log.Fatalf("registeredclients is not an array of objects")
+		fatal("registeredclients is not an array of objects")
 	}
 	registeredClients := make(map[domain.ClientId]domain.Client)
 	for _, client := range clients {
 		client, ok := client.(map[string]any)
 		if !ok {
-			log.Fatalf("client is not an object")
+			fatal("client is not an object")
 		}
 		clientId := client["id"].(string)
 		if !ok {
-			log.Fatalf("client id is not a string")
+			fatal("client id is not a string")
 		}
 		// NOTE: again we can not cast to `[]string` yet, we do that later for each individual redirect uri
 		redirectUris, ok := client["redirecturis"].([]any)
 		if !ok {
-			log.Fatalf("redirect uris is not an array")
+			fatal("redirect uris is not an array")
 		}
 		redirectUrisString := make([]string, len(redirectUris))
 		for i, uri := range redirectUris {
 			uri, ok := uri.(string)
 			if !ok {
-				log.Fatalf("redirect uri is not a string")
+				fatal("redirect uri is not a string")
 			}
 			redirectUrisString[i] = uri
 		}
 		basicAuthSecret, ok := client["basicauthsecret"].(string)
 		if !ok {
-			log.Fatalf("basic auth secret is not a string")
+			fatal("basic auth secret is not a string")
 		}
 		registeredClients[clientId] = domain.Client{
 			Id:              clientId,
@@ -199,7 +206,7 @@ func readConfig(configFileLocation string) domain.Configuration {
 	// Read SMTP configuration using shared utility
 	smtpConfig, err := config.ReadSMTPConfig(k)
 	if err != nil {
-		log.Fatalf("error reading SMTP config: %v", err)
+		fatal("error reading SMTP config: %v", err)
 	}
 
 	return domain.Configuration{

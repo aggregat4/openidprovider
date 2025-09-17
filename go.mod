@@ -49,6 +49,7 @@ require github.com/aggregat4/go-baselib-services/v3 v3.4.2
 
 require (
 	github.com/go-chi/chi/v5 v5.2.2
+	github.com/willibrandon/mtlog v0.9.0
 	github.com/wneessen/go-mail v0.6.2
 )
 

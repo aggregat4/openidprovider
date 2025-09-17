@@ -2,8 +2,8 @@ package cleanup
 
 import (
 	"aggregat4/openidprovider/internal/domain"
+	"aggregat4/openidprovider/internal/logging"
 	"aggregat4/openidprovider/internal/repository"
-	"log"
 	"sync"
 	"time"
 )
@@ -17,6 +17,8 @@ type CleanupJob struct {
 	cleanupMutex sync.Mutex
 	stopped      bool
 }
+
+var logger = logging.ForComponent("cleanup.job")
 
 func NewCleanupJob(store *repository.Store, config domain.CleanupConfiguration) *CleanupJob {
 	return &CleanupJob{
@@ -56,7 +58,7 @@ func (j *CleanupJob) run() {
 				j.inCleanup = true
 				if err := j.cleanup(); err != nil {
 					if err.Error() != "sql: database is closed" {
-						log.Printf("Error during cleanup: %v", err)
+						logging.Error(logger, "Error during cleanup", "error", err)
 					}
 				}
 				j.inCleanup = false

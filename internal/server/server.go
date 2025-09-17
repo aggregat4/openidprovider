@@ -3,13 +3,13 @@ package server
 import (
 	"aggregat4/openidprovider/internal/cleanup"
 	"aggregat4/openidprovider/internal/domain"
+	"aggregat4/openidprovider/internal/logging"
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/pkg/email"
 	"context"
 	"crypto/subtle"
 	"embed"
 	"html/template"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -41,7 +41,7 @@ type Controller struct {
 	CaptchaVerifier CaptchaVerifier
 }
 
-// var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+var logger = logging.ForComponent("server")
 
 const ContentTypeJson = "application/json;charset=UTF-8"
 
@@ -65,9 +65,9 @@ func RunServer(controller Controller) {
 		WriteTimeout: time.Duration(controller.Config.ServerWriteTimeoutSeconds) * time.Second,
 	}
 
-	slog.Info("Server starting", "port", controller.Config.ServerPort)
+	logger.Info("Server starting on port {Port}", controller.Config.ServerPort)
 	if err := server.ListenAndServe(); err != nil {
-		slog.Error("Server failed to start", "error", err)
+		logger.Error("Server failed to start {Error}", err)
 		os.Exit(1)
 	}
 }
@@ -146,7 +146,7 @@ func (controller *Controller) renderTemplate(w http.ResponseWriter, templateName
 	}
 	err := tmpl.ExecuteTemplate(w, baseName, data)
 	if err != nil {
-		slog.Error("Template execution failed", "templateName", baseName, "error", err)
+		logger.Error("Template execution failed {TemplateName} {Error}", baseName, err)
 		return err
 	}
 	return nil
@@ -155,17 +155,19 @@ func (controller *Controller) renderTemplate(w http.ResponseWriter, templateName
 // loggingMiddleware logs all requests
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		slog.Info("Incoming request",
+		reqLogger := logger.With(
 			"method", r.Method,
 			"path", r.URL.Path,
 			"query", r.URL.RawQuery,
-			"user_agent", r.UserAgent(),
-			"remote_addr", r.RemoteAddr)
+			"userAgent", r.UserAgent(),
+			"remoteAddr", r.RemoteAddr,
+		)
+		reqLogger.Info("Incoming request")
 
 		// Log form data for POST requests
-		if r.Method == "POST" {
+		if r.Method == http.MethodPost {
 			if err := r.ParseForm(); err == nil {
-				slog.Info("Form data", "form", r.Form)
+				reqLogger.With("form", r.Form).Info("Parsed form data")
 			}
 		}
 
@@ -174,11 +176,10 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(ww, r)
 
-		slog.Info("Request completed",
-			"method", r.Method,
-			"path", r.URL.Path,
+		reqLogger.With(
 			"status", ww.Status(),
-			"size", ww.BytesWritten())
+			"bytesWritten", ww.BytesWritten(),
+		).Info("Request completed")
 	})
 }
 
@@ -187,7 +188,7 @@ func CreateSessionMiddleware(sessionStore *sessions.CookieStore) func(next http.
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			session, err := sessionStore.Get(r, "session")
 			if err != nil {
-				slog.Error("Failed to get session", "error", err)
+				logger.Error("Failed to get session {Error}", err)
 			}
 
 			// Add session to request context
