@@ -64,6 +64,7 @@ Expand the existing createuser command into a comprehensive user management tool
 
 ## Misc Improvements
 
+* change the logging calls to use native mtlog interpolation with curly brackets isntead of the current sprintf hack
 * Implement a `.well-known/change-password` endpoint as per <https://w3c.github.io/webappsec-change-password-url/> that can be used by password managers tot automatically redirect and trigger a password change flow.
 * the config file parsing is case sensitive and this can lead to unnecessary errors. Can we make it parse it case insensitively?
 * we need to make the experience for registered users better: once the registration flow is complete and they log in they currently just land on the main page but there is no sesion and no indication that they are logged into their account. First of all we need sessions for the openidprovider and then we need to provide a different experience for logged in users where they can manage their account and see details about their account
