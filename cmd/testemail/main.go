@@ -47,28 +47,19 @@ func main() {
 
 	// Read configuration
 	configFile := lang.IfElse(configFileLocation == "", config.GetDefaultConfigPath(), configFileLocation)
-
-	k, err := config.LoadConfigFile(configFile)
-	if err != nil {
-		logging.Fatal(logger, "Error loading configuration: {Error}", err)
-	}
-
-	smtpConfig, err := config.ReadSMTPConfig(k)
-	if err != nil {
-		logging.Fatal(logger, "Error reading SMTP configuration: {Error}", err)
-	}
+	config := config.ReadConfig(configFile)
 
 	fmt.Printf("Configuration loaded from: %s\n", configFile)
-	fmt.Printf("SMTP Host: %s:%d\n", smtpConfig.Host, smtpConfig.Port)
-	fmt.Printf("SMTP Username: %s\n", smtpConfig.Username)
-	fmt.Printf("SMTP From: %s <%s>\n", smtpConfig.FromName, smtpConfig.FromEmail)
-	fmt.Printf("SMTP TLS: %t\n", smtpConfig.UseTLS)
+	fmt.Printf("SMTP Host: %s:%d\n", config.SMTPConfig.Host, config.SMTPConfig.Port)
+	fmt.Printf("SMTP Username: %s\n", config.SMTPConfig.Username)
+	fmt.Printf("SMTP From: %s <%s>\n", config.SMTPConfig.FromName, config.SMTPConfig.FromEmail)
+	fmt.Printf("SMTP TLS: %t\n", config.SMTPConfig.UseTLS)
 	fmt.Printf("Recipient: %s\n", recipientEmail)
 	fmt.Println("")
 
 	// Send test email directly using go-mail
 	fmt.Println("Sending test email...")
-	err = sendTestEmail(smtpConfig, recipientEmail)
+	err := sendTestEmail(config.SMTPConfig, recipientEmail)
 	if err != nil {
 		logging.Fatal(logger, "Error sending email: {Error}", err)
 	}
@@ -76,7 +67,7 @@ func main() {
 	fmt.Printf("✅ Test email sent successfully to %s\n", recipientEmail)
 }
 
-func sendTestEmail(smtpConfig *domain.SMTPConfiguration, recipientEmail string) error {
+func sendTestEmail(smtpConfig domain.SMTPConfiguration, recipientEmail string) error {
 	// Create email message
 	msg := mail.NewMsg()
 	msg.From(smtpConfig.FromEmail)
