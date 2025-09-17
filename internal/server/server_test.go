@@ -5,6 +5,7 @@ import (
 	"aggregat4/openidprovider/internal/repository"
 	"aggregat4/openidprovider/internal/server"
 	"aggregat4/openidprovider/pkg/email"
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 
@@ -15,8 +16,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -116,7 +117,7 @@ func TestLoginPageGet(t *testing.T) {
 	httpServer, controller := waitForServer(t)
 	defer cleanupTest(t, httpServer, controller)
 
-	client := &http.Client{}
+	client := createTestHttpClient()
 	res := makeGetRequest(t, client, LoginUrl)
 	assert.Equal(t, 200, res.StatusCode)
 	body := readBody(res)
@@ -678,7 +679,7 @@ func TestOpenIdConfiguration(t *testing.T) {
 	httpServer, controller := waitForServer(t)
 	defer cleanupTest(t, httpServer, controller)
 
-	client := &http.Client{}
+	client := createTestHttpClient()
 	res, err := client.Get("http://localhost:1323/.well-known/openid-configuration")
 	if err != nil {
 		t.Fatal(err)
@@ -1066,6 +1067,8 @@ func (m *MockCaptchaVerifier) VerifySolution(solution string) (bool, error) {
 	return true, nil
 }
 
+var activeHandler http.Handler
+
 func waitForServer(t *testing.T) (*http.Server, server.Controller) {
 	fmt.Printf("DEBUG: Starting waitForServer\n")
 	loadKeys(t)
@@ -1083,24 +1086,10 @@ func waitForServer(t *testing.T) (*http.Server, server.Controller) {
 		EmailService:    &MockEmailService{},
 		CaptchaVerifier: &MockCaptchaVerifier{},
 	}
-	fmt.Printf("DEBUG: Creating server\n")
-	chiServer := server.InitServer(controller)
-
-	httpServer := &http.Server{
-		Addr:         ":" + strconv.Itoa(serverConfig.ServerPort),
-		Handler:      chiServer,
-		ReadTimeout:  time.Duration(serverConfig.ServerReadTimeoutSeconds) * time.Second,
-		WriteTimeout: time.Duration(serverConfig.ServerWriteTimeoutSeconds) * time.Second,
-	}
-
-	fmt.Printf("DEBUG: Starting server\n")
-	go func() {
-		_ = httpServer.ListenAndServe()
-	}()
-	fmt.Printf("DEBUG: Waiting for server to start\n")
-	waitForServerStart(t, "http://localhost:"+strconv.Itoa(serverConfig.ServerPort)+"/status")
-	fmt.Printf("DEBUG: Server started successfully\n")
-	return httpServer, controller
+	fmt.Printf("DEBUG: Creating handler\n")
+	activeHandler = server.InitServer(controller)
+	fmt.Printf("DEBUG: Server handler ready\n")
+	return nil, controller
 }
 
 func cleanupTest(t *testing.T, httpServer *http.Server, controller server.Controller) {
@@ -1111,13 +1100,16 @@ func cleanupTest(t *testing.T, httpServer *http.Server, controller server.Contro
 		time.Sleep(100 * time.Millisecond)
 	}
 	// Then close the HTTP server
-	if err := httpServer.Close(); err != nil {
-		t.Errorf("Error closing server: %v", err)
+	if httpServer != nil {
+		if err := httpServer.Close(); err != nil {
+			t.Errorf("Error closing server: %v", err)
+		}
 	}
 	// Finally close the database
 	if err := controller.Store.Close(); err != nil {
 		t.Errorf("Error closing database: %v", err)
 	}
+	activeHandler = nil
 }
 
 func createAuthorizeUrl(t *testing.T, scopes string) *url.URL {
@@ -1188,6 +1180,9 @@ func performAuthorizeAndLogin(t *testing.T, client *http.Client, password string
 
 func createTestHttpClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
+	if activeHandler == nil {
+		panic("active handler is not initialized")
+	}
 	return &http.Client{
 		Jar: jar,
 		// we need to prevent the client from redirecting automatically since we may need to assert
@@ -1195,21 +1190,51 @@ func createTestHttpClient() *http.Client {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-		//Transport: &http.Transport{DisableKeepAlives: true},
+		Transport: &handlerTransport{handler: activeHandler},
 	}
 }
 
-func waitForServerStart(t *testing.T, url string) {
-	maxRetries := 10
-	for range maxRetries {
-		resp, err := http.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			return
-		}
-		time.Sleep(time.Second)
+type handlerTransport struct {
+	handler http.Handler
+}
+
+func (t *handlerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.handler == nil {
+		return nil, fmt.Errorf("handler not initialized")
 	}
-	t.Fatalf("Server did not start after %d retries", maxRetries)
+	var bodyBytes []byte
+	if req.Body != nil && req.Body != http.NoBody {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if req.Body != nil {
+		req.Body.Close()
+	}
+	clone := req.Clone(req.Context())
+	if len(bodyBytes) > 0 {
+		clone.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		clone.ContentLength = int64(len(bodyBytes))
+	} else {
+		clone.Body = http.NoBody
+		clone.ContentLength = 0
+	}
+	clone.RemoteAddr = "127.0.0.1:0"
+	clone.RequestURI = req.URL.RequestURI()
+
+	if len(bodyBytes) > 0 {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	} else {
+		req.Body = http.NoBody
+	}
+
+	recorder := httptest.NewRecorder()
+	t.handler.ServeHTTP(recorder, clone)
+	resp := recorder.Result()
+	resp.Request = req
+	return resp, nil
 }
 
 func readBody(res *http.Response) string {
