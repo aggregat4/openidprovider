@@ -1,6 +1,6 @@
 # TODO
 
-## OIDC an OAuth Features
+## OIDC and OAuth Features
 
 * Support `prompt` with the value `none` in the authorization request by immediately returning an error (since we always reauthenticate, and in this case we shouldn't)
 * Support `nonce` in the authorization request (and all the way through ID token generation)
