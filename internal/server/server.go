@@ -155,20 +155,12 @@ func (controller *Controller) renderTemplate(w http.ResponseWriter, templateName
 // loggingMiddleware logs all requests
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logging.Info(logger, "Incoming request method={Method} path={Path} query={Query} userAgent={UserAgent:q} remoteAddr={RemoteAddr}",
-			r.Method,
-			r.URL.Path,
-			r.URL.RawQuery,
-			r.UserAgent(),
-			r.RemoteAddr,
-		)
-
-		// Log form data for POST requests
-		if r.Method == http.MethodPost {
-			if err := r.ParseForm(); err == nil {
-				logging.Info(logger, "Parsed form data form={Form}", r.Form.Encode())
-			}
-		}
+		// // Log form data for POST requests
+		// if r.Method == http.MethodPost {
+		// 	if err := r.ParseForm(); err == nil {
+		// 		logging.Info(logger, "Parsed form data form={Form}", r.Form.Encode())
+		// 	}
+		// }
 
 		// Create a response writer wrapper to capture status
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
