@@ -94,12 +94,13 @@ When a confidential client exchanges a valid authorization code at `/token` with
 
 1. validate client authentication exactly as it does today
 2. validate and consume the authorization code exactly once
-3. load the user and scope claims as it does today
-4. issue:
+3. determine the original user authentication time for this grant
+4. load the user and scope claims as it does today
+5. issue:
    - a new opaque `access_token`
    - a new signed `id_token`
    - a new opaque `refresh_token`
-5. persist the refresh token record before returning the response
+6. persist the refresh token record before returning the response
 
 The token response shall include:
 
@@ -125,17 +126,32 @@ When a confidential client posts to `/token` with `grant_type=refresh_token`, th
    - is already rotated away
    - belongs to a different client
    - belongs to a deleted user
-5. load the user and granted scopes from stored token state, not from client input
-6. issue a replacement:
+5. use the stored granted scopes as the maximum scope set for the refresh
+6. load current user claim values from the database for those stored scopes
+7. issue a replacement:
    - `access_token`
    - `id_token`
    - `refresh_token`
-7. rotate refresh token state atomically:
+8. rotate refresh token state atomically:
    - mark the presented token as rotated/revoked
    - create the replacement token
    - preserve family linkage for replay detection
 
 The refresh request shall not accept scope escalation. The response scope is the originally granted scope set.
+
+The refreshed `id_token` shall:
+
+- use the original authentication time for any emitted `auth_time` claim
+- not include the original authorization request `nonce`
+
+This project does not currently implement general `nonce` support. If `nonce` support is added later, it must not be propagated into refreshed ID tokens.
+
+The refresh flow snapshots granted scope names, not claim values. In other words:
+
+- the scope set is fixed by the original grant and stored with the refresh token family
+- claim values are loaded fresh from the current database at refresh time
+- if the stored scope set can no longer be resolved safely, the refresh fails with `invalid_grant` rather than silently changing scope
+- if the user no longer exists or can no longer support a valid token response, the refresh fails with `invalid_grant`
 
 ## Token Model
 
@@ -161,23 +177,25 @@ Add a new persisted refresh token entity with fields equivalent to:
 
 - `token_hash`
 - `token_hint_prefix`
+- `family_id`
 - `client_id`
 - `email`
 - `scopes`
+- `auth_time`
 - `created_at`
-- `last_used_at`
 - `expires_at`
+- `rotated_at`
 - `revoked_at`
-- `revoke_reason`
-- `replaced_by_token_hash`
-- `family_id`
 
 Notes:
 
 - store only a hash of the refresh token, not the raw token
 - `token_hint_prefix` is an optional short prefix from the clear token used only to make debugging easier in logs and admin tooling
 - `family_id` identifies all rotated descendants of the same original grant
-- `replaced_by_token_hash` links one token to its replacement
+- `auth_time` is copied from the original successful user authentication and remains constant for the entire token family
+- in this implementation, `auth_time` may be recorded as the timestamp of the successful OAuth login that resulted in the authorization code
+- `expires_at` is the effective expiry for the individual refresh token row and is advanced on rotation subject to the family lifetime cap
+- `rotated_at` records that this token was successfully consumed and replaced
 
 ### Hashing Requirement
 
@@ -207,12 +225,11 @@ CREATE TABLE refresh_tokens (
     client_id TEXT NOT NULL,
     email TEXT NOT NULL,
     scopes TEXT NOT NULL,
+    auth_time INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
-    last_used_at INTEGER,
     expires_at INTEGER NOT NULL,
+    rotated_at INTEGER,
     revoked_at INTEGER,
-    revoke_reason TEXT,
-    replaced_by_token_hash TEXT,
     FOREIGN KEY (email) REFERENCES users(email)
 );
 
@@ -237,6 +254,27 @@ Add repository operations for:
 
 Rotation must be transactional. The old token cannot remain valid if the new token was returned.
 
+The implementation should use a write transaction that serializes token rotation in SQLite. Because SQLite does not support row-level `SELECT ... FOR UPDATE`, the refresh flow should:
+
+1. start a write transaction with `BEGIN IMMEDIATE`
+2. look up the presented refresh token row
+3. attempt a guarded state transition such as:
+   - `UPDATE refresh_tokens SET rotated_at = ? WHERE token_hash = ? AND rotated_at IS NULL AND revoked_at IS NULL AND expires_at >= ?`
+4. verify that exactly one row was updated
+5. insert the replacement token row in the same transaction
+6. commit the transaction before returning the response
+
+`BEGIN IMMEDIATE` is preferred over `BEGIN EXCLUSIVE` here because it serializes writers early without unnecessarily blocking readers under WAL mode.
+
+If the guarded update affects zero rows, the transaction should re-read token state and handle the result as one of:
+
+- expired
+- revoked
+- already rotated
+- not found
+
+This keeps rotation logic race-safe without adding database complexity that is out of character for this project.
+
 ## Rotation and Replay Detection
 
 ### Rotation Policy
@@ -249,9 +287,17 @@ That means:
 - the response includes a new refresh token
 - the new token belongs to the same `family_id`
 
+Version 1 should use strict rotation semantics with no grace period for retries. This means:
+
+- the first committed refresh wins
+- any later presentation of the old token is treated according to its stored state
+- an ambiguous client retry after a lost network response may force re-authentication
+
+This is a conscious UX trade-off in favor of simpler and more defensible server behavior for the first implementation.
+
 ### Replay Detection
 
-If a refresh request presents a token that has already been rotated and therefore has a non-null `replaced_by_token_hash`, the server shall treat this as potential replay.
+If a refresh request presents a token that has already been rotated and therefore has a non-null `rotated_at`, the server shall treat this as potential replay.
 
 On detected replay:
 
@@ -271,17 +317,17 @@ Recommended defaults:
 - refresh token absolute lifetime: 30 days
 - refresh token inactivity timeout: 7 days since last successful use
 
-Refresh token validity check should fail if either:
+For version 1, `expires_at` should represent the usable lifetime of the current refresh token row, combining inactivity and absolute lifetime.
 
-- `expires_at` is in the past
-- `last_used_at` is older than the inactivity window
+On successful rotation, the new token's `expires_at` should be set to:
 
-On successful rotation:
+- `min(now + inactivity_timeout, auth_time + absolute_lifetime)`
 
-- the new token gets a fresh inactivity window
-- the family does not extend indefinitely past the absolute lifetime unless explicitly chosen
+This keeps expiry evaluation to a single deadline while preserving the intended product semantics:
 
-To keep the implementation simple and bounded, the first version should preserve an absolute family lifetime based on the original issuance time. In other words, refreshing extends inactivity, not total lifetime.
+- active use extends the session
+- the family still has a hard stop
+- SQL lookups only need one expiry comparison per token row
 
 ## Revocation
 
@@ -306,6 +352,8 @@ Behavior for unsupported or unknown `token_type_hint`:
 - still return success
 
 This keeps the implementation aligned with RFC 7009 behavior without requiring access token persistence in version 1.
+
+If the token exists but belongs to a different client than the authenticated caller, the server shall take no action and still return `200 OK`.
 
 ### Implicit Revocation Events
 
@@ -372,7 +420,6 @@ Allowed log fields:
 - email
 - family ID
 - token hint prefix
-- revoke reason
 
 Disallowed log fields:
 
@@ -430,6 +477,7 @@ The implementation must satisfy these requirements:
 - refresh requests require client authentication
 - refresh token rotation happens on every successful refresh
 - replay of a rotated token revokes the whole family
+- refresh token revocation requests only affect tokens owned by the authenticated client
 - refresh token scope cannot exceed the original authorization grant
 - refresh token failures do not leak whether a token belonged to another client or user
 - raw refresh tokens are never logged
@@ -446,6 +494,8 @@ Add tests for at least:
 - revoked refresh token returns `invalid_grant`
 - expired refresh token returns `invalid_grant`
 - refresh token bound to client A cannot be used by client B
+- revoking a token from the wrong client returns `200 OK` and does nothing
+- two concurrent refresh attempts on the same token serialize cleanly and produce exactly one successful rotation
 - `/revoke` succeeds for an active refresh token
 - `/revoke` is idempotent for unknown or already revoked tokens
 - password reset revokes all refresh tokens for the user
