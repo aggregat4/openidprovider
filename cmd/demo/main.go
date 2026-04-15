@@ -388,7 +388,7 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }
 
-func parseToken(token string) (map[string]interface{}, error) {
+func parseToken(token string) (map[string]any, error) {
 	logging.Info(logger, "Parsing ID token")
 
 	// Split the token into parts
@@ -405,7 +405,7 @@ func parseToken(token string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("error decoding token: %v", err)
 	}
 
-	var claims map[string]interface{}
+	var claims map[string]any
 	if err := json.Unmarshal(claimsJSON, &claims); err != nil {
 		logging.Error(logger, "Error parsing claims: {Error}", err)
 		return nil, fmt.Errorf("error parsing claims: %v", err)

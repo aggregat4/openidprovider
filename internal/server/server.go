@@ -141,8 +141,8 @@ func (controller *Controller) renderTemplate(w http.ResponseWriter, templateName
 	tmpl := template.Must(template.New("").ParseFS(viewFiles, "views/*.html"))
 	// Use base name without .html extension for execution
 	baseName := templateName
-	if strings.HasSuffix(templateName, ".html") {
-		baseName = strings.TrimSuffix(templateName, ".html")
+	if before, ok := strings.CutSuffix(templateName, ".html"); ok {
+		baseName = before
 	}
 	err := tmpl.ExecuteTemplate(w, baseName, data)
 	if err != nil {
