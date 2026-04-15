@@ -194,7 +194,7 @@ Notes:
 - `family_id` identifies all rotated descendants of the same original grant
 - `auth_time` is copied from the original successful user authentication and remains constant for the entire token family
 - in this implementation, `auth_time` may be recorded as the timestamp of the successful OAuth login that resulted in the authorization code
-- `expires_at` is the effective expiry for the individual refresh token row and is advanced on rotation subject to the family lifetime cap
+- `expires_at` is the effective expiry for the individual refresh token row and is advanced on rotation using the inactivity timeout
 - `rotated_at` records that this token was successfully consumed and replaced
 
 ### Hashing Requirement
@@ -314,20 +314,32 @@ The first version should use fixed global lifetimes instead of per-client policy
 Recommended defaults:
 
 - access token lifetime: 5 minutes
-- refresh token absolute lifetime: 30 days
 - refresh token inactivity timeout: 7 days since last successful use
 
-For version 1, `expires_at` should represent the usable lifetime of the current refresh token row, combining inactivity and absolute lifetime.
+For version 1, `expires_at` should represent the usable lifetime of the current refresh token row based only on the inactivity timeout.
 
 On successful rotation, the new token's `expires_at` should be set to:
 
-- `min(now + inactivity_timeout, auth_time + absolute_lifetime)`
+- `now + inactivity_timeout`
 
 This keeps expiry evaluation to a single deadline while preserving the intended product semantics:
 
 - active use extends the session
-- the family still has a hard stop
 - SQL lookups only need one expiry comparison per token row
+
+### Lifetime Trade-Off
+
+Version 1 intentionally does not impose an absolute family lifetime cap.
+
+That means:
+
+- an actively used refresh token family can continue indefinitely
+- the user is not forced to re-login simply because a long-lived session reached a maximum age
+- inactivity, replay detection, explicit revocation, password reset, and account deletion remain the main ways a refresh token family ends
+
+This is a deliberate trade-off for this project. It favors simpler behavior and fewer surprising re-login events over the stronger security bound provided by an absolute maximum session age.
+
+If future requirements change, the spec can be extended to add an optional family lifetime cap. That should be treated as a product decision, not a silent implementation detail.
 
 ## Revocation
 
@@ -433,7 +445,6 @@ The first version should avoid introducing many knobs.
 Add only these configuration fields if needed:
 
 - `jwt.accessTokenValidityMinutes`
-- `jwt.refreshTokenAbsoluteValidityHours`
 - `jwt.refreshTokenInactivityValidityHours`
 
 If keeping these under `jwt` feels misleading, a new `tokens` section is acceptable. What matters more is keeping the config surface small and obvious.
