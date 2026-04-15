@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	baselibmiddleware "github.com/aggregat4/go-baselib-services/v3/middleware"
+	baselibmiddleware "github.com/aggregat4/go-baselib-services/v4/middleware"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
