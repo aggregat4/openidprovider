@@ -1,59 +1,59 @@
 module aggregat4/openidprovider
 
-go 1.24.1
+go 1.26.2
 
 require github.com/aggregat4/go-baselib v1.4.0
 
 require (
-	github.com/golang-jwt/jwt/v5 v5.2.2
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/sessions v1.4.0
 	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
-	github.com/knadh/koanf/providers/file v1.1.2
-	github.com/knadh/koanf/v2 v2.1.2
-	github.com/stretchr/testify v1.10.0
+	github.com/knadh/koanf/providers/file v1.2.1
+	github.com/knadh/koanf/v2 v2.3.4
+	github.com/stretchr/testify v1.11.1
 )
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.4
+	github.com/go-jose/go-jose/v3 v3.0.5
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	golang.org/x/time v0.12.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 require (
-	github.com/altcha-org/altcha-lib-go v0.2.0
-	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
-	github.com/knadh/koanf/maps v0.1.1 // indirect
+	github.com/altcha-org/altcha-lib-go v1.0.0
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+	github.com/knadh/koanf/maps v0.1.2 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
-	golang.org/x/crypto v0.39.0 // indirect
+	golang.org/x/crypto v0.50.0 // indirect
 )
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/mattn/go-isatty v0.0.21 // indirect
+	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
-	golang.org/x/net v0.41.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.26.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 )
 
 require github.com/aggregat4/go-baselib-services/v3 v3.4.2
 
 require (
-	github.com/go-chi/chi/v5 v5.2.2
-	github.com/willibrandon/mtlog v0.9.0
-	github.com/wneessen/go-mail v0.6.2
+	github.com/go-chi/chi/v5 v5.2.5
+	github.com/willibrandon/mtlog v0.10.0
+	github.com/wneessen/go-mail v0.7.2
 )
 
-require github.com/hjson/hjson-go/v4 v4.4.0 // indirect
+require github.com/hjson/hjson-go/v4 v4.6.0 // indirect
 
 require (
 	github.com/knadh/koanf/parsers/hjson v1.0.0
