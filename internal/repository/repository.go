@@ -1,10 +1,13 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"time"
+
+	"aggregat4/openidprovider/internal/tokens"
 
 	"github.com/aggregat4/go-baselib/migrations"
 )
@@ -162,6 +165,30 @@ var mymigrations = []migrations.Migration{
 		UPDATE users SET is_verified = 1 WHERE is_verified = 0;
 		`,
 	},
+	{
+		SequenceId: 7,
+		Sql: `
+		CREATE TABLE IF NOT EXISTS refresh_tokens (
+			token_hash TEXT NOT NULL PRIMARY KEY,
+			token_hint_prefix TEXT NOT NULL,
+			family_id TEXT NOT NULL,
+			client_id TEXT NOT NULL,
+			email TEXT NOT NULL,
+			scopes TEXT NOT NULL,
+			auth_time INTEGER NOT NULL,
+			created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL,
+			rotated_at INTEGER,
+			revoked_at INTEGER,
+			FOREIGN KEY (email) REFERENCES users(email)
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family_id ON refresh_tokens(family_id);
+		CREATE INDEX IF NOT EXISTS idx_refresh_tokens_email ON refresh_tokens(email);
+		CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+		CREATE INDEX IF NOT EXISTS idx_refresh_tokens_revoked_at ON refresh_tokens(revoked_at);
+		`,
+	},
 }
 
 type Store struct {
@@ -224,12 +251,56 @@ type EmailTracking struct {
 	BlockedAt    sql.NullInt64
 }
 
+type RefreshToken struct {
+	TokenHash       string
+	TokenHintPrefix string
+	FamilyId        string
+	ClientId        string
+	Email           string
+	Scopes          string
+	AuthTime        int64
+	CreatedAt       int64
+	ExpiresAt       int64
+	RotatedAt       sql.NullInt64
+	RevokedAt       sql.NullInt64
+}
+
+type RefreshTokenState string
+
+const (
+	RefreshTokenStateActive      RefreshTokenState = "active"
+	RefreshTokenStateNotFound    RefreshTokenState = "not_found"
+	RefreshTokenStateExpired     RefreshTokenState = "expired"
+	RefreshTokenStateRevoked     RefreshTokenState = "revoked"
+	RefreshTokenStateRotated     RefreshTokenState = "rotated"
+	RefreshTokenStateWrongClient RefreshTokenState = "wrong_client"
+)
+
+type RefreshTokenRotationResult struct {
+	State RefreshTokenState
+	Token *RefreshToken
+}
+
+const refreshTokenSelectColumns = `
+	token_hash,
+	token_hint_prefix,
+	family_id,
+	client_id,
+	email,
+	scopes,
+	auth_time,
+	created_at,
+	expires_at,
+	rotated_at,
+	revoked_at
+`
+
 func CreateFileDbUrl(dbName string) string {
 	return fmt.Sprintf("file:%s.sqlite", dbName)
 }
 
 func CreateInMemoryDbUrl() string {
-	return ":memory:"
+	return "file::memory:?cache=shared"
 }
 
 func (store *Store) InitAndVerifyDb(dbUrl string) error {
@@ -452,6 +523,12 @@ func (store *Store) DeleteUser(email string) error {
 
 	// Delete verification tokens
 	_, err = tx.Exec("DELETE FROM verification_tokens WHERE email = ?", email)
+	if err != nil {
+		return err
+	}
+
+	// Delete refresh tokens
+	_, err = tx.Exec("DELETE FROM refresh_tokens WHERE email = ?", email)
 	if err != nil {
 		return err
 	}
@@ -755,6 +832,218 @@ func (store *Store) DeleteExpiredAuthorizationCodes() error {
 	return err
 }
 
+func (store *Store) CreateRefreshToken(token RefreshToken) error {
+	_, err := store.db.Exec(`
+		INSERT INTO refresh_tokens (
+			token_hash,
+			token_hint_prefix,
+			family_id,
+			client_id,
+			email,
+			scopes,
+			auth_time,
+			created_at,
+			expires_at,
+			rotated_at,
+			revoked_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		token.TokenHash,
+		token.TokenHintPrefix,
+		token.FamilyId,
+		token.ClientId,
+		token.Email,
+		token.Scopes,
+		token.AuthTime,
+		token.CreatedAt,
+		token.ExpiresAt,
+		token.RotatedAt,
+		token.RevokedAt,
+	)
+	return err
+}
+
+func (store *Store) FindRefreshToken(rawToken string) (*RefreshToken, error) {
+	return store.findRefreshTokenByHash(store.db, tokens.HashOpaqueToken(rawToken))
+}
+
+func (store *Store) RotateRefreshToken(presentedToken string, replacement RefreshToken, now int64) (RefreshTokenRotationResult, error) {
+	ctx := context.Background()
+	conn, err := store.db.Conn(ctx)
+	if err != nil {
+		return RefreshTokenRotationResult{}, err
+	}
+	defer conn.Close()
+
+	// Refresh-token rotation must behave like a single state transition:
+	// either the presented token is marked consumed and the replacement token
+	// is persisted, or neither happens. BEGIN IMMEDIATE acquires SQLite's write
+	// lock up front on this dedicated connection so competing refresh attempts
+	// serialize before either request can observe and update the old token as
+	// still active. That gives us a clean "first committed refresh wins" model
+	// without depending on row-level locks that SQLite does not provide.
+	if err := beginImmediateTransaction(ctx, conn); err != nil {
+		return RefreshTokenRotationResult{}, err
+	}
+
+	committed := false
+	defer func() {
+		if !committed {
+			_ = rollbackImmediateTransaction(ctx, conn)
+		}
+	}()
+
+	tokenHash := tokens.HashOpaqueToken(presentedToken)
+	current, err := store.findRefreshTokenByHash(conn, tokenHash)
+	if err != nil {
+		return RefreshTokenRotationResult{}, err
+	}
+	if current == nil {
+		return RefreshTokenRotationResult{State: RefreshTokenStateNotFound}, nil
+	}
+	if current.ClientId != replacement.ClientId {
+		return RefreshTokenRotationResult{State: RefreshTokenStateWrongClient, Token: current}, nil
+	}
+	if current.ExpiresAt < now {
+		return RefreshTokenRotationResult{State: RefreshTokenStateExpired, Token: current}, nil
+	}
+	if current.RevokedAt.Valid {
+		return RefreshTokenRotationResult{State: RefreshTokenStateRevoked, Token: current}, nil
+	}
+	if current.RotatedAt.Valid {
+		if err := revokeRefreshTokenFamilyOnExecutor(ctx, conn, current.FamilyId, now); err != nil {
+			return RefreshTokenRotationResult{}, err
+		}
+		if err := commitImmediateTransaction(ctx, conn); err != nil {
+			return RefreshTokenRotationResult{}, err
+		}
+		committed = true
+		current.RevokedAt = sql.NullInt64{Int64: now, Valid: true}
+		return RefreshTokenRotationResult{State: RefreshTokenStateRotated, Token: current}, nil
+	}
+
+	result, err := conn.ExecContext(ctx, `
+		UPDATE refresh_tokens
+		SET rotated_at = ?
+		WHERE token_hash = ?
+			AND rotated_at IS NULL
+			AND revoked_at IS NULL
+			AND expires_at >= ?
+	`, now, tokenHash, now)
+	if err != nil {
+		return RefreshTokenRotationResult{}, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return RefreshTokenRotationResult{}, err
+	}
+
+	if rowsAffected == 0 {
+		current, err = store.findRefreshTokenByHash(conn, tokenHash)
+		if err != nil {
+			return RefreshTokenRotationResult{}, err
+		}
+		if current == nil {
+			return RefreshTokenRotationResult{State: RefreshTokenStateNotFound}, nil
+		}
+		if current.ClientId != replacement.ClientId {
+			return RefreshTokenRotationResult{State: RefreshTokenStateWrongClient, Token: current}, nil
+		}
+		if current.ExpiresAt < now {
+			return RefreshTokenRotationResult{State: RefreshTokenStateExpired, Token: current}, nil
+		}
+		if current.RevokedAt.Valid {
+			return RefreshTokenRotationResult{State: RefreshTokenStateRevoked, Token: current}, nil
+		}
+		if current.RotatedAt.Valid {
+			if err := revokeRefreshTokenFamilyOnExecutor(ctx, conn, current.FamilyId, now); err != nil {
+				return RefreshTokenRotationResult{}, err
+			}
+			if err := commitImmediateTransaction(ctx, conn); err != nil {
+				return RefreshTokenRotationResult{}, err
+			}
+			committed = true
+			current.RevokedAt = sql.NullInt64{Int64: now, Valid: true}
+			return RefreshTokenRotationResult{State: RefreshTokenStateRotated, Token: current}, nil
+		}
+		return RefreshTokenRotationResult{State: RefreshTokenStateNotFound}, nil
+	}
+
+	if err := createRefreshTokenOnExecutor(ctx, conn, replacement); err != nil {
+		return RefreshTokenRotationResult{}, err
+	}
+	if err := commitImmediateTransaction(ctx, conn); err != nil {
+		return RefreshTokenRotationResult{}, err
+	}
+	committed = true
+	current.RotatedAt = sql.NullInt64{Int64: now, Valid: true}
+	return RefreshTokenRotationResult{State: RefreshTokenStateActive, Token: current}, nil
+}
+
+func (store *Store) RevokeRefreshTokenFamily(familyId string, revokedAt int64) error {
+	return revokeRefreshTokenFamilyOnExecutor(context.Background(), store.db, familyId, revokedAt)
+}
+
+func (store *Store) RevokeRefreshTokenFamilyByToken(rawToken, clientId string, revokedAt int64) (bool, error) {
+	token, err := store.FindRefreshToken(rawToken)
+	if err != nil {
+		return false, err
+	}
+	if token == nil || token.ClientId != clientId {
+		return false, nil
+	}
+	if err := store.RevokeRefreshTokenFamily(token.FamilyId, revokedAt); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (store *Store) RevokeAllRefreshTokensForUser(email string, revokedAt int64) error {
+	_, err := store.db.Exec(`
+		UPDATE refresh_tokens
+		SET revoked_at = ?
+		WHERE email = ? AND revoked_at IS NULL
+	`, revokedAt, email)
+	return err
+}
+
+func (store *Store) DeleteExpiredRefreshTokens() error {
+	_, err := store.db.Exec("DELETE FROM refresh_tokens WHERE expires_at < ?", time.Now().Unix())
+	return err
+}
+
+func (store *Store) DeleteOldRevokedRefreshTokens(retention time.Duration) error {
+	_, err := store.db.Exec(`
+		DELETE FROM refresh_tokens
+		WHERE revoked_at IS NOT NULL AND revoked_at < ?
+	`, time.Now().Add(-retention).Unix())
+	return err
+}
+
+func (store *Store) ListRefreshTokensByEmail(email string) ([]RefreshToken, error) {
+	rows, err := store.db.Query(fmt.Sprintf(`
+		SELECT %s
+		FROM refresh_tokens
+		WHERE email = ?
+		ORDER BY created_at ASC
+	`, refreshTokenSelectColumns), email)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var refreshTokens []RefreshToken
+	for rows.Next() {
+		refreshToken, err := scanRefreshToken(rows)
+		if err != nil {
+			return nil, err
+		}
+		refreshTokens = append(refreshTokens, *refreshToken)
+	}
+	return refreshTokens, nil
+}
+
 func (store *Store) GetActiveVerificationTokensCount(email string) (int, error) {
 	var count int
 	err := store.db.QueryRow(`
@@ -789,4 +1078,116 @@ func (store *Store) GetFailedVerificationAttempts(email string) (int, error) {
 		WHERE email = ? AND type = 'registration' AND expires < ?`,
 		email, time.Now().Unix()).Scan(&count)
 	return count, err
+}
+
+type queryExecutor interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// findRefreshTokenByHash accepts either *sql.DB or *sql.Conn because refresh-token
+// rotation pins work to a dedicated connection after BEGIN IMMEDIATE. Reusing the
+// same helper with the active executor ensures every statement participates in the
+// same transactional context instead of accidentally hopping back onto a different
+// pooled database connection.
+func (store *Store) findRefreshTokenByHash(exec queryExecutor, tokenHash string) (*RefreshToken, error) {
+	row := exec.QueryRowContext(context.Background(), fmt.Sprintf(`
+		SELECT %s
+		FROM refresh_tokens
+		WHERE token_hash = ?
+	`, refreshTokenSelectColumns), tokenHash)
+	return scanRefreshToken(row)
+}
+
+func scanRefreshToken(scanner interface {
+	Scan(dest ...any) error
+}) (*RefreshToken, error) {
+	var refreshToken RefreshToken
+	err := scanner.Scan(
+		&refreshToken.TokenHash,
+		&refreshToken.TokenHintPrefix,
+		&refreshToken.FamilyId,
+		&refreshToken.ClientId,
+		&refreshToken.Email,
+		&refreshToken.Scopes,
+		&refreshToken.AuthTime,
+		&refreshToken.CreatedAt,
+		&refreshToken.ExpiresAt,
+		&refreshToken.RotatedAt,
+		&refreshToken.RevokedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &refreshToken, nil
+}
+
+func beginImmediateTransaction(ctx context.Context, conn *sql.Conn) error {
+	// IMMEDIATE is intentional here instead of relying on SQLite's default
+	// deferred transaction start. We want write contention to surface before
+	// reading token state so concurrent refresh requests cannot both read the
+	// same token as active and race each other into a partial rotation.
+	_, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE")
+	return err
+}
+
+func commitImmediateTransaction(ctx context.Context, conn *sql.Conn) error {
+	_, err := conn.ExecContext(ctx, "COMMIT")
+	return err
+}
+
+func rollbackImmediateTransaction(ctx context.Context, conn *sql.Conn) error {
+	_, err := conn.ExecContext(ctx, "ROLLBACK")
+	return err
+}
+
+// createRefreshTokenOnExecutor runs on either the store DB or a pinned SQL
+// connection. The latter is required during rotation because the replacement
+// token insert must happen on the same connection that already performed
+// BEGIN IMMEDIATE and updated the presented token row.
+func createRefreshTokenOnExecutor(ctx context.Context, exec queryExecutor, token RefreshToken) error {
+	_, err := exec.ExecContext(ctx, `
+		INSERT INTO refresh_tokens (
+			token_hash,
+			token_hint_prefix,
+			family_id,
+			client_id,
+			email,
+			scopes,
+			auth_time,
+			created_at,
+			expires_at,
+			rotated_at,
+			revoked_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		token.TokenHash,
+		token.TokenHintPrefix,
+		token.FamilyId,
+		token.ClientId,
+		token.Email,
+		token.Scopes,
+		token.AuthTime,
+		token.CreatedAt,
+		token.ExpiresAt,
+		token.RotatedAt,
+		token.RevokedAt,
+	)
+	return err
+}
+
+// revokeRefreshTokenFamilyOnExecutor likewise accepts the current executor so
+// family revocation can be done safely inside an existing connection-bound
+// transaction during replay handling, while still being reusable for
+// non-transactional callers that go through *sql.DB.
+func revokeRefreshTokenFamilyOnExecutor(ctx context.Context, exec queryExecutor, familyId string, revokedAt int64) error {
+	_, err := exec.ExecContext(ctx, `
+		UPDATE refresh_tokens
+		SET revoked_at = ?
+		WHERE family_id = ? AND revoked_at IS NULL
+	`, revokedAt, familyId)
+	return err
 }

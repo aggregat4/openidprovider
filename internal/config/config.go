@@ -105,6 +105,14 @@ func ReadConfig(configFileLocation string) domain.Configuration {
 		}
 	}
 	idTokenValidityMinutes := k.MustInt("jwt.idtokenvalidityminutes")
+	accessTokenValidityMinutes := 5
+	if k.Exists("jwt.accesstokenvalidityminutes") {
+		accessTokenValidityMinutes = k.MustInt("jwt.accesstokenvalidityminutes")
+	}
+	refreshTokenInactivityValidityHours := 7 * 24
+	if k.Exists("jwt.refreshtokeninactivityvalidityhours") {
+		refreshTokenInactivityValidityHours = k.MustInt("jwt.refreshtokeninactivityvalidityhours")
+	}
 
 	// Set default cleanup configuration
 	cleanupConfig := domain.CleanupConfiguration{
@@ -181,6 +189,10 @@ func ReadConfig(configFileLocation string) domain.Configuration {
 			IdTokenValidityMinutes: idTokenValidityMinutes,
 			PrivateKey:             privateKey,
 			PublicKey:              publicKey,
+		},
+		TokenConfig: domain.TokenConfiguration{
+			AccessTokenValidityMinutes:          accessTokenValidityMinutes,
+			RefreshTokenInactivityValidityHours: refreshTokenInactivityValidityHours,
 		},
 		SMTPConfig:             *smtpConfig,
 		EmailRateLimitConfig:   emailRateLimitConfig,

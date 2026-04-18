@@ -4,6 +4,7 @@ import (
 	"aggregat4/openidprovider/internal/domain"
 	"aggregat4/openidprovider/internal/logging"
 	"aggregat4/openidprovider/internal/repository"
+	"aggregat4/openidprovider/internal/tokens"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -61,6 +62,14 @@ type LoginPage struct {
 	RedirectUri string
 	State       string
 	Scope       string
+}
+
+type tokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	IdToken      string `json:"id_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
 var handlersLogger = logging.ForComponent("server.handlers")
@@ -140,7 +149,10 @@ func (controller *Controller) OpenIdConfigurationHandler(w http.ResponseWriter, 
 		Issuer:                           controller.Config.BaseUrl,
 		AuthorizationEndpoint:            controller.Config.BaseUrl + "/authorize",
 		TokenEndpoint:                    controller.Config.BaseUrl + "/token",
+		RevocationEndpoint:               controller.Config.BaseUrl + "/revoke",
 		JwksUri:                          controller.Config.BaseUrl + "/.well-known/jwks.json",
+		GrantTypesSupported:              []string{"authorization_code", "refresh_token"},
+		RevocationEndpointAuthMethods:    []string{"client_secret_basic"},
 		ResponseTypesSupported:           []string{"code"},
 		SubjectTypesSupported:            []string{"public"},
 		IdTokenSigningAlgValuesSupported: []string{"RS256"},
@@ -168,45 +180,69 @@ func (controller *Controller) TokenHandler(w http.ResponseWriter, r *http.Reques
 		sendOauthAccessTokenError(w, "invalid_client")
 		return
 	}
-	// Validate that the redirect URI is registered for the client
+
+	grantType := getFormValue(r, "grant_type")
+	switch grantType {
+	case "authorization_code":
+		controller.handleAuthorizationCodeGrant(w, r, clientId, client)
+	case "refresh_token":
+		controller.handleRefreshTokenGrant(w, r, clientId)
+	default:
+		sendOauthAccessTokenError(w, "unsupported_grant_type")
+	}
+}
+
+func (controller *Controller) RevokeHandler(w http.ResponseWriter, r *http.Request) {
+	logging.Info(handlersLogger, "Revocation endpoint")
+
+	clientId := r.Context().Value(clientIDContextKey).(string)
+	if _, clientExists := controller.Config.RegisteredClients[clientId]; !clientExists {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	token := getFormValue(r, "token")
+	if token == "" {
+		sendOauthAccessTokenError(w, "invalid_request")
+		return
+	}
+
+	if _, err := controller.Store.RevokeRefreshTokenFamilyByToken(token, clientId, time.Now().Unix()); err != nil {
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (controller *Controller) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Request, clientId string, client domain.Client) {
 	redirectUri := getFormValue(r, "redirect_uri")
+	code := getFormValue(r, "code")
+	if redirectUri == "" || code == "" {
+		sendOauthAccessTokenError(w, "invalid_request")
+		return
+	}
 	if !slices.Contains(client.RedirectUris, redirectUri) {
 		sendOauthAccessTokenError(w, "invalid_client")
 		return
 	}
-	// we assume that basic auth has happened and the secret matches, proceed to verify the grant type and code
-	grantType := getFormValue(r, "grant_type")
-	if grantType != "authorization_code" {
-		sendOauthAccessTokenError(w, "unsupported_grant_type")
-		return
-	}
-	code := getFormValue(r, "code")
 
-	// validate that the code exists
 	existingCode, err := controller.Store.FindCode(code)
 	if err != nil {
 		stringResponse(w, http.StatusInternalServerError, "Internal error")
 		return
 	}
-	if existingCode == nil {
+	if existingCode == nil || existingCode.ClientId != clientId || existingCode.RedirectUri != redirectUri {
 		sendOauthAccessTokenError(w, "invalid_grant")
 		return
 	}
 
-	// Code was used once, delete it
-	err = controller.Store.DeleteCode(code)
-	if err != nil {
-		stringResponse(w, http.StatusInternalServerError, "Internal error")
-		return
-	}
-
-	// Validate that the code is for the correct client and redirect URI
-	if existingCode.ClientId != clientId || existingCode.RedirectUri != redirectUri {
+	requestedScopes := parseScopes(existingCode.Scopes)
+	if !controller.scopesExist(requestedScopes) {
 		sendOauthAccessTokenError(w, "invalid_grant")
 		return
 	}
 
-	// Get the user
 	user, err := controller.Store.FindUser(existingCode.Email)
 	if err != nil {
 		stringResponse(w, http.StatusInternalServerError, "Internal error")
@@ -217,40 +253,186 @@ func (controller *Controller) TokenHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Parse requested scopes
-	requestedScopes := strings.Split(existingCode.Scopes, " ")
-
-	// Get claims for the requested scopes
-	claims, err := controller.Store.GetUserClaimsForScopes(user.Id, requestedScopes)
+	response, err := controller.createTokenResponse(clientId, user, requestedScopes, existingCode.Created)
 	if err != nil {
 		stringResponse(w, http.StatusInternalServerError, "Internal error")
 		return
 	}
 
-	// Convert claims to map for ID token
-	claimsMap := make(map[string]any)
+	now := time.Now()
+	refreshToken, refreshRecord, err := controller.buildRefreshTokenRecord(clientId, user.Email, existingCode.Scopes, existingCode.Created, uuid.NewString(), now)
+	if err != nil {
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+
+	if err := controller.Store.DeleteCode(code); err != nil {
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+	if err := controller.Store.CreateRefreshToken(refreshRecord); err != nil {
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+
+	response.RefreshToken = refreshToken
+	w.Header().Set("Cache-Control", "no-store")
+	jsonResponse(w, http.StatusOK, response)
+}
+
+func (controller *Controller) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request, clientId string) {
+	presentedRefreshToken := getFormValue(r, "refresh_token")
+	if presentedRefreshToken == "" {
+		sendOauthAccessTokenError(w, "invalid_request")
+		return
+	}
+
+	existingRefreshToken, err := controller.Store.FindRefreshToken(presentedRefreshToken)
+	if err != nil {
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+	if existingRefreshToken == nil || existingRefreshToken.ClientId != clientId || existingRefreshToken.ExpiresAt < time.Now().Unix() || existingRefreshToken.RevokedAt.Valid {
+		sendOauthAccessTokenError(w, "invalid_grant")
+		return
+	}
+
+	refreshScopes := parseScopes(existingRefreshToken.Scopes)
+	if !controller.scopesExist(refreshScopes) {
+		sendOauthAccessTokenError(w, "invalid_grant")
+		return
+	}
+
+	user, err := controller.Store.FindUser(existingRefreshToken.Email)
+	if err != nil {
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+	if user == nil {
+		sendOauthAccessTokenError(w, "invalid_grant")
+		return
+	}
+
+	response, err := controller.createTokenResponse(clientId, user, refreshScopes, existingRefreshToken.AuthTime)
+	if err != nil {
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+
+	now := time.Now()
+	refreshToken, replacementToken, err := controller.buildRefreshTokenRecord(
+		clientId,
+		existingRefreshToken.Email,
+		existingRefreshToken.Scopes,
+		existingRefreshToken.AuthTime,
+		existingRefreshToken.FamilyId,
+		now,
+	)
+	if err != nil {
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+
+	rotationResult, err := controller.Store.RotateRefreshToken(presentedRefreshToken, replacementToken, now.Unix())
+	if err != nil {
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+		return
+	}
+
+	switch rotationResult.State {
+	case repository.RefreshTokenStateActive:
+		response.RefreshToken = refreshToken
+		w.Header().Set("Cache-Control", "no-store")
+		jsonResponse(w, http.StatusOK, response)
+	case repository.RefreshTokenStateRotated:
+		if rotationResult.Token != nil {
+			logging.Warn(
+				handlersLogger,
+				"Refresh token replay detected client_id={ClientId} email={Email} family_id={FamilyId} token_hint_prefix={TokenHintPrefix}",
+				rotationResult.Token.ClientId,
+				rotationResult.Token.Email,
+				rotationResult.Token.FamilyId,
+				rotationResult.Token.TokenHintPrefix,
+			)
+		}
+		sendOauthAccessTokenError(w, "invalid_grant")
+	case repository.RefreshTokenStateNotFound, repository.RefreshTokenStateExpired, repository.RefreshTokenStateRevoked, repository.RefreshTokenStateWrongClient:
+		sendOauthAccessTokenError(w, "invalid_grant")
+	default:
+		stringResponse(w, http.StatusInternalServerError, "Internal error")
+	}
+}
+
+func (controller *Controller) createTokenResponse(clientId string, user *repository.User, scopes []string, authTime int64) (tokenResponse, error) {
+	claims, err := controller.Store.GetUserClaimsForScopes(user.Id, scopes)
+	if err != nil {
+		return tokenResponse{}, err
+	}
+
+	claimsMap := make(map[string]any, len(claims))
 	for _, claim := range claims {
 		claimsMap[claim.ClaimName] = claim.Value
 	}
 
-	// Finally, generate the access token
-	accessToken := uuid.New().String()
-
-	// Generate ID token
-	idToken, err := GenerateIdToken(controller.Config.JwtConfig, clientId, user.Email, claimsMap)
+	accessToken, err := tokens.GenerateOpaqueToken()
 	if err != nil {
-		stringResponse(w, http.StatusInternalServerError, "Internal error")
-		return
+		return tokenResponse{}, err
 	}
 
-	// Respond with the access token
-	w.Header().Set("Cache-Control", "no-store")
-	response := map[string]string{
-		"access_token": accessToken,
-		"token_type":   "Bearer",
-		"id_token":     idToken,
+	idToken, err := GenerateIdTokenWithAuthenticationTime(controller.Config.JwtConfig, clientId, user.Email, claimsMap, authTime)
+	if err != nil {
+		return tokenResponse{}, err
 	}
-	jsonResponse(w, http.StatusOK, response)
+
+	accessTokenValidityMinutes := controller.Config.TokenConfig.AccessTokenValidityMinutes
+	if accessTokenValidityMinutes <= 0 {
+		accessTokenValidityMinutes = 5
+	}
+
+	return tokenResponse{
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+		IdToken:     idToken,
+		ExpiresIn:   accessTokenValidityMinutes * 60,
+	}, nil
+}
+
+func (controller *Controller) buildRefreshTokenRecord(clientId, email, scopes string, authTime int64, familyId string, now time.Time) (string, repository.RefreshToken, error) {
+	refreshToken, err := tokens.GenerateOpaqueToken()
+	if err != nil {
+		return "", repository.RefreshToken{}, err
+	}
+
+	refreshTokenValidityHours := controller.Config.TokenConfig.RefreshTokenInactivityValidityHours
+	if refreshTokenValidityHours <= 0 {
+		refreshTokenValidityHours = 7 * 24
+	}
+
+	return refreshToken, repository.RefreshToken{
+		TokenHash:       tokens.HashOpaqueToken(refreshToken),
+		TokenHintPrefix: tokens.TokenHintPrefix(refreshToken),
+		FamilyId:        familyId,
+		ClientId:        clientId,
+		Email:           email,
+		Scopes:          scopes,
+		AuthTime:        authTime,
+		CreatedAt:       now.Unix(),
+		ExpiresAt:       now.Add(time.Duration(refreshTokenValidityHours) * time.Hour).Unix(),
+	}, nil
+}
+
+func (controller *Controller) scopesExist(scopes []string) bool {
+	for _, scope := range scopes {
+		exists, err := controller.Store.ScopeExists(scope)
+		if err != nil || !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func parseScopes(rawScopes string) []string {
+	return strings.Fields(rawScopes)
 }
 
 // AuthorizeHandler handles OAuth authorization requests
@@ -946,6 +1128,14 @@ func (controller *Controller) ResetPasswordHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if err := controller.Store.RevokeAllRefreshTokensForUser(verificationToken.Email, time.Now().Unix()); err != nil {
+		page := ResetPasswordPage{
+			Error: "Internal error",
+		}
+		controller.renderTemplate(w, "reset-password.html", page, http.StatusInternalServerError)
+		return
+	}
+
 	// Delete used token
 	err = controller.Store.DeleteVerificationToken(token)
 	if err != nil {
@@ -1220,6 +1410,10 @@ func (controller *Controller) renderRegisterSuccess(w http.ResponseWriter, email
 
 // GenerateIdToken See https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
 func GenerateIdToken(jwtConfig domain.JwtConfiguration, clientId string, userName string, claims map[string]any) (string, error) {
+	return GenerateIdTokenWithAuthenticationTime(jwtConfig, clientId, userName, claims, 0)
+}
+
+func GenerateIdTokenWithAuthenticationTime(jwtConfig domain.JwtConfiguration, clientId string, userName string, claims map[string]any, authTime int64) (string, error) {
 	// Start with standard claims
 	tokenClaims := jwt.MapClaims{
 		"iss": jwtConfig.Issuer,
@@ -1227,6 +1421,9 @@ func GenerateIdToken(jwtConfig domain.JwtConfiguration, clientId string, userNam
 		"aud": clientId,
 		"exp": time.Now().Add(time.Minute * time.Duration(jwtConfig.IdTokenValidityMinutes)).Unix(),
 		"iat": time.Now().Unix(),
+	}
+	if authTime > 0 {
+		tokenClaims["auth_time"] = authTime
 	}
 
 	maps.Copy(tokenClaims, claims)

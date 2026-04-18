@@ -20,6 +20,11 @@ type JwtConfiguration struct {
 	PublicKey              *rsa.PublicKey
 }
 
+type TokenConfiguration struct {
+	AccessTokenValidityMinutes          int
+	RefreshTokenInactivityValidityHours int
+}
+
 type AltchaConfiguration struct {
 	HMACKey    string `json:"hmacKey"`
 	MaxNumber  int64  `json:"maxNumber"`
@@ -34,6 +39,7 @@ type Configuration struct {
 	BaseUrl                   string
 	RegisteredClients         map[ClientId]Client
 	JwtConfig                 JwtConfiguration
+	TokenConfig               TokenConfiguration
 	SMTPConfig                SMTPConfiguration
 	EmailRateLimitConfig      EmailRateLimitConfiguration
 	CleanupConfig             CleanupConfiguration
@@ -68,8 +74,11 @@ type OpenIdConfiguration struct {
 	Issuer                           string   `json:"issuer"`
 	AuthorizationEndpoint            string   `json:"authorization_endpoint"`
 	TokenEndpoint                    string   `json:"token_endpoint"`
+	RevocationEndpoint               string   `json:"revocation_endpoint,omitempty"`
 	JwksUri                          string   `json:"jwks_uri"`
 	ResponseTypesSupported           []string `json:"response_types_supported"`
+	GrantTypesSupported              []string `json:"grant_types_supported,omitempty"`
+	RevocationEndpointAuthMethods    []string `json:"revocation_endpoint_auth_methods_supported,omitempty"`
 	SubjectTypesSupported            []string `json:"subject_types_supported"`
 	IdTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
 	ScopesSupported                  []string `json:"scopes_supported"`

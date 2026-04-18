@@ -62,7 +62,13 @@
     "issuer": "http://localhost:8080",
     
     // Validity period for ID tokens in minutes. Default: 5
-    "idtokenvalidityminutes": 60
+    "idtokenvalidityminutes": 60,
+
+    // Validity period for access tokens in minutes. Default: 5
+    "accesstokenvalidityminutes": 5,
+
+    // Refresh token inactivity timeout in hours. Default: 168 (7 days)
+    "refreshtokeninactivityvalidityhours": 168
   },
   
   // Cleanup Configuration

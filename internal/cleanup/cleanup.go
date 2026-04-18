@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const revokedRefreshTokenRetention = 30 * 24 * time.Hour
+
 type CleanupJob struct {
 	store        *repository.Store
 	config       domain.CleanupConfiguration
@@ -79,6 +81,12 @@ func (j *CleanupJob) cleanup() error {
 		return err
 	}
 	if err := j.store.DeleteExpiredAuthorizationCodes(); err != nil {
+		return err
+	}
+	if err := j.store.DeleteExpiredRefreshTokens(); err != nil {
+		return err
+	}
+	if err := j.store.DeleteOldRevokedRefreshTokens(revokedRefreshTokenRetention); err != nil {
 		return err
 	}
 	return nil

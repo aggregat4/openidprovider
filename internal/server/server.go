@@ -90,7 +90,7 @@ func InitServer(controller Controller) *chi.Mux {
 	r.Use(middleware.Compress(5))
 	r.Use(controller.basicAuthMiddleware)
 	r.Use(baselibmiddleware.CreateCsrfMiddlewareWithSkipperStd(func(r *http.Request) bool {
-		return r.URL.Path == "/token"
+		return r.URL.Path == "/token" || r.URL.Path == "/revoke"
 	}))
 
 	// Static files
@@ -113,6 +113,7 @@ func InitServer(controller Controller) *chi.Mux {
 	r.Post("/login", controller.LoginHandler)
 
 	r.Post("/token", controller.TokenHandler)
+	r.Post("/revoke", controller.RevokeHandler)
 
 	r.Get("/register", controller.ShowRegisterPageHandler)
 	r.Post("/register", controller.RegisterHandler)
@@ -200,7 +201,7 @@ func CreateSessionMiddleware(sessionStore *sessions.CookieStore) func(next http.
 func (controller *Controller) basicAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip basic auth for non-token endpoints
-		if r.URL.Path != "/token" {
+		if r.URL.Path != "/token" && r.URL.Path != "/revoke" {
 			next.ServeHTTP(w, r)
 			return
 		}

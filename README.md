@@ -1,27 +1,145 @@
 # OpenID Provider
 
-This is a minimal OpenID Connect protocol implementation with a sqlite backing store for user accounts.
+This project is a small OpenID Connect provider backed by SQLite. It is intentionally focused on a narrow, understandable feature set instead of trying to be a full commercial identity platform.
 
-This service acts as the OpenID Provider (OP) in the OpenID Connect protocol. It implements [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html). Only the Authorization Code Flow is supported.
+It acts as the OpenID Provider (OP) for confidential clients and currently centers on the authorization code flow, signed ID tokens, opaque access tokens, and rotating refresh tokens.
 
-## Limitations
+## Current Feature Set
 
-- TLS is delegated to a reverse proxy. Since OpenID Connect requires TLS for various interactions you MUST operate a reverse proxy in front of this service.
-- The provider does not implement persistent sessions: if an authorization request is received, the user will always have to login. It is up to the client to maintain a session if so desired.
-- Unsupported Authorization Request parameters:
-  - `nonce`
-  - `display`
-  - `prompt`: At the moment the server _always_ reauthenticates the user and we _don't_ immediately return an error if prompt is `none`
-  - `max_age`
-  - `ui_locales`
-  - `id_token_hint`
-  - `login_hint`
-  - `acr_values`
-- The provider does not support passing request parameters as JWTs as per <https://openid.net/specs/openid-connect-core-1_0.html#JWTRequests>
-- ID Token
-  - Signed with RS256 using an RSA keypair
-  - Unsupported claims:
-    - `auth_time`: it's optional and only required if `max_age` was specified in auth request which we also do not support yet
-    - `at_hash`
-    - `acr`
-    - `amr`
+- OpenID Connect discovery at `/.well-known/openid-configuration`
+- JWKS publishing at `/.well-known/jwks.json`
+- Authorization code flow for configured confidential clients
+- Client authentication at `/token` and `/revoke` via HTTP Basic auth
+- Signed ID tokens using RS256 and an RSA keypair
+- Opaque access tokens with a configured lifetime
+- Opaque refresh tokens with:
+  - secure random generation
+  - SHA-256 hashing at rest
+  - rotation on every successful refresh
+  - family revocation on replay detection
+  - explicit revocation through `POST /revoke`
+- Scope and claim support backed by SQLite
+- Built-in account management flows:
+  - registration with email verification
+  - password reset
+  - account deletion verification
+- Background cleanup for expired authorization codes, verification tokens, and refresh tokens
+
+## Protocol Behavior
+
+### Supported OAuth/OIDC flows
+
+- `authorization_code`
+- `refresh_token`
+
+### Token behavior
+
+- `access_token`
+  - opaque
+  - not persisted
+  - returned with `expires_in`
+- `id_token`
+  - signed with RS256
+  - includes standard issuer, subject, audience, issued-at, and expiry claims
+  - includes `auth_time` for the authenticated session family
+  - includes configured user claims for the granted scopes
+- `refresh_token`
+  - issued to confidential clients on successful code exchange
+  - rotated on every successful refresh
+  - bound to the client that received it
+  - revoked for the whole token family if a rotated token is replayed
+
+### Revocation behavior
+
+- `POST /revoke` supports refresh-token revocation
+- revocation is idempotent and does not reveal whether a token existed
+- password reset revokes all refresh tokens for the user
+- account deletion removes the user and their refresh tokens
+
+## User and Claim Model
+
+Users are stored in SQLite and identified by email.
+
+Scopes and claims are also stored in SQLite. The server currently seeds:
+
+- `openid`
+- `profile`
+- `email`
+
+Claims are resolved dynamically from the current database state when issuing ID tokens. Refresh token families snapshot granted scope names, not claim values, so refreshed ID tokens pick up changed claim values for the same granted scopes.
+
+## Running the Server
+
+Build all binaries:
+
+```bash
+./scripts/build.sh
+```
+
+Run the server with the example configuration:
+
+```bash
+go run cmd/server/main.go --config example-config.jsonc
+```
+
+Run the test suite:
+
+```bash
+./scripts/test.sh
+```
+
+Run linting:
+
+```bash
+./scripts/lint.sh
+```
+
+## Configuration Notes
+
+Use `example-config.jsonc` as the starting point.
+
+Important settings include:
+
+- registered confidential clients and their Basic auth secrets
+- RSA private/public key files for ID token signing and JWKS
+- token lifetime settings under `jwt`
+  - `idtokenvalidityminutes`
+  - `accesstokenvalidityminutes`
+  - `refreshtokeninactivityvalidityhours`
+- SMTP settings for registration, password reset, and delete-account emails
+
+## Security Model and Limits
+
+- TLS is still required in deployment. This service expects TLS termination at a reverse proxy.
+- The server does not maintain persistent OP login sessions. Each authorization request reauthenticates the user.
+- Only configured confidential clients are supported. Public clients are not supported.
+- Access token introspection is not implemented.
+- Access tokens are opaque and non-persisted.
+- Revocation currently applies to refresh tokens only.
+- Dynamic client registration is not supported.
+- DPoP, mutual TLS, and logout/session management are not supported.
+
+## Unsupported Authorization Request Parameters
+
+The authorization endpoint still does not implement:
+
+- `nonce`
+- `display`
+- `prompt`
+- `max_age`
+- `ui_locales`
+- `id_token_hint`
+- `login_hint`
+- `acr_values`
+
+Request objects as JWTs are also not supported.
+
+## ID Token Notes
+
+ID tokens are signed with RS256. The implementation remains intentionally small and does not currently add:
+
+- `at_hash`
+- `acr`
+- `amr`
+
+`auth_time` is now emitted based on the original successful authentication for the token family.
