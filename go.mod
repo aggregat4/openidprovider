@@ -1,6 +1,6 @@
 module aggregat4/openidprovider
 
-go 1.26.2
+go 1.26.6
 
 require (
 	github.com/aggregat4/go-baselib v1.4.0

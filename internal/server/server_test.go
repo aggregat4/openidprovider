@@ -20,6 +20,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -641,7 +642,13 @@ func TestRevokeWrongClientReturnsSuccessAndDoesNothing(t *testing.T) {
 }
 
 func TestConcurrentRefreshAttemptsProduceOneSuccessfulRotation(t *testing.T) {
-	httpServer, controller := waitForServer(t)
+	httpServer, controller := waitForServerWithDatabaseUrl(
+		t,
+		repository.CreateFileDbUrl(filepath.Join(t.TempDir(), "openidprovider")),
+		serverConfig,
+		&MockEmailService{},
+		&MockCaptchaVerifier{},
+	)
 	defer cleanupTest(t, httpServer, controller)
 
 	createVerifiedTestUser(t, controller, TestUsername, TestPassword)
@@ -1951,6 +1958,10 @@ func waitForServer(t *testing.T) (*http.Server, server.Controller) {
 }
 
 func waitForServerWithDependencies(t *testing.T, config domain.Configuration, emailService email.EmailSender, captchaVerifier server.CaptchaVerifier) (*http.Server, server.Controller) {
+	return waitForServerWithDatabaseUrl(t, repository.CreateInMemoryDbUrl(), config, emailService, captchaVerifier)
+}
+
+func waitForServerWithDatabaseUrl(t *testing.T, dbUrl string, config domain.Configuration, emailService email.EmailSender, captchaVerifier server.CaptchaVerifier) (*http.Server, server.Controller) {
 	fmt.Printf("DEBUG: Starting waitForServer\n")
 	loadKeys(t)
 	if config.JwtConfig.PrivateKey == nil || config.JwtConfig.PublicKey == nil {
@@ -1959,7 +1970,7 @@ func waitForServerWithDependencies(t *testing.T, config domain.Configuration, em
 	}
 	var store repository.Store
 	fmt.Printf("DEBUG: Initializing database\n")
-	err := store.InitAndVerifyDb(repository.CreateInMemoryDbUrl())
+	err := store.InitAndVerifyDb(dbUrl)
 	if err != nil {
 		fmt.Printf("DEBUG: Error initializing database: %v\n", err)
 		panic(err)

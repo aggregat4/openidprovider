@@ -10,13 +10,9 @@ import (
 	"aggregat4/openidprovider/internal/tokens"
 
 	"github.com/aggregat4/go-baselib/migrations"
-	"github.com/mattn/go-sqlite3"
 )
 
-const (
-	refreshTokenRotationMaxLockRetries = 7
-	refreshTokenRotationInitialBackoff = 5 * time.Millisecond
-)
+const sqliteBusyTimeoutMilliseconds = 5000
 
 var mymigrations = []migrations.Migration{
 	{
@@ -302,11 +298,11 @@ const refreshTokenSelectColumns = `
 `
 
 func CreateFileDbUrl(dbName string) string {
-	return fmt.Sprintf("file:%s.sqlite", dbName)
+	return fmt.Sprintf("file:%s.sqlite?_busy_timeout=%d", dbName, sqliteBusyTimeoutMilliseconds)
 }
 
 func CreateInMemoryDbUrl() string {
-	return "file::memory:?cache=shared"
+	return fmt.Sprintf("file::memory:?cache=shared&_busy_timeout=%d", sqliteBusyTimeoutMilliseconds)
 }
 
 func (store *Store) InitAndVerifyDb(dbUrl string) error {
@@ -1136,30 +1132,10 @@ func beginImmediateTransaction(ctx context.Context, conn *sql.Conn) error {
 	// deferred transaction start. We want write contention to surface before
 	// reading token state so concurrent refresh requests cannot both read the
 	// same token as active and race each other into a partial rotation.
-	//
-	// SQLite shared-cache connections can return SQLITE_BUSY or SQLITE_LOCKED
-	// immediately when another rotation already holds the write lock. Retrying
-	// only this acquisition lets the first request commit, after which the
-	// second request observes the rotated token and follows the replay path.
-	backoff := refreshTokenRotationInitialBackoff
-	for attempt := 0; ; attempt++ {
-		_, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE")
-		if err == nil || !isSQLiteLockError(err) || attempt == refreshTokenRotationMaxLockRetries {
-			return err
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-			backoff *= 2
-		}
-	}
-}
-
-func isSQLiteLockError(err error) bool {
-	var sqliteError sqlite3.Error
-	return errors.As(err, &sqliteError) && (sqliteError.Code == sqlite3.ErrBusy || sqliteError.Code == sqlite3.ErrLocked)
+	// The SQLite driver's connection-level busy timeout absorbs brief writer
+	// contention. A persistent lock still returns an error to the caller.
+	_, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE")
+	return err
 }
 
 func commitImmediateTransaction(ctx context.Context, conn *sql.Conn) error {
